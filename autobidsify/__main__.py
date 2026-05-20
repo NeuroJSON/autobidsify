@@ -55,7 +55,7 @@ def setup_parser():
     parser = argparse.ArgumentParser(
         prog="autobidsify",
         description=(
-            "autobidsify v0.6.2 — Automated BIDS Standardization Tool\n"
+            "autobidsify v0.9.2 — Automated BIDS Standardization Tool\n"
             "Powered by LLM-first architecture.\n"
             "\n"
             "Supports MRI (.dcm, .nii, .nii.gz, .jnii, .bnii) and\n"

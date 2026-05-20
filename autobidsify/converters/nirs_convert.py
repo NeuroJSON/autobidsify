@@ -1563,6 +1563,7 @@ def _read_snirf_metadata(snirf_path: Path) -> Dict[str, Any]:
         "detector_pos_is_3d":  False,
         "n_sources":           None,
         "n_detectors":         None,
+        "stim_events":         None,
     }
 
     try:
@@ -1672,6 +1673,50 @@ def _read_snirf_metadata(snirf_path: Path) -> Dict[str, Any]:
                     ]
                     if det_indices:
                         result["n_detectors"] = max(det_indices)
+            
+            # ── stim events ────────────────────────────────────────
+            stim_groups = sorted(
+                [k for k in nirs.keys() if k.startswith("stim")],
+                key=lambda x: int(re.search(r"\d+", x).group())
+                if re.search(r"\d+", x) else 0
+            )
+            all_events = []
+            for sg in stim_groups:
+                try:
+                    stim = nirs[sg]
+                    name_raw = stim["name"][()]
+                    trial_type = (
+                        name_raw.decode("utf-8", errors="ignore").strip()
+                        if isinstance(name_raw, bytes) else str(name_raw).strip()
+                    )
+                    data = stim["data"][()]
+                    data = np.atleast_2d(data)
+                    labels_raw = stim.get("dataLabels")
+                    if labels_raw is not None:
+                        labels = [
+                            (l.decode("utf-8", errors="ignore").strip()
+                             if isinstance(l, bytes) else str(l).strip())
+                            for l in labels_raw[()]
+                        ]
+                    else:
+                        labels = ["Onset", "Duration", "Amplitude"]
+                    labels_lower = [l.lower() for l in labels]
+                    onset_idx    = next((i for i, l in enumerate(labels_lower)
+                                        if "onset" in l), 0)
+                    duration_idx = next((i for i, l in enumerate(labels_lower)
+                                        if "duration" in l), 1)
+                    for row in data:
+                        all_events.append({
+                            "onset":      round(float(row[onset_idx]), 6),
+                            "duration":   round(float(row[duration_idx]), 6)
+                                          if len(row) > duration_idx else "n/a",
+                            "trial_type": trial_type,
+                        })
+                except Exception as e_stim:
+                    warn(f"  stim group '{sg}' could not be read: {e_stim}")
+            if all_events:
+                all_events.sort(key=lambda x: x["onset"])
+                result["stim_events"] = all_events
 
     except Exception as e:
         warn(f"  _read_snirf_metadata failed for {snirf_path.name}: {e}")
@@ -1784,15 +1829,16 @@ def _generate_channels_tsv(
             ch_name = base_name
 
         # BIDS channel type
-        bids_type = _DTYPE_LABEL_TO_BIDS.get(label)
+        bids_type = _DTYPE_LABEL_TO_BIDS.get(label) if label else None
         if bids_type is None:
-            # Fallback: infer from dataType integer code
             if dtype == 1:
                 bids_type = "NIRSCWAMPLITUDE"
+            elif dtype == 2:
+                bids_type = "NIRSCWOPTICALDENSITY"
+            elif dtype == 4:
+                bids_type = "NIRSCWHBO"
             else:
                 bids_type = "MISC"
-                warn(f"  _channels.tsv: unknown dataTypeLabel '{label}' "
-                     f"for channel {ch_name}, using MISC")
 
         # Wavelength nominal value
         if wl_idx is not None and wl_idx - 1 < len(wl_values):
@@ -1887,8 +1933,9 @@ def _generate_optodes_tsv(
 
     # optodes.tsv is device-level (same across runs) — strip run- entity
     # so all runs of the same subject/task share one file.
-    stem_no_run = re.sub(r"_run-[A-Za-z0-9]+", "", bids_stem)
-    out_path = snirf_path.parent / f"{stem_no_run}_optodes.tsv"
+    m = re.search(r"(sub-[A-Za-z0-9]+)", bids_stem)
+    sub_label = m.group(1) if m else bids_stem
+    out_path = snirf_path.parent / f"{sub_label}_optodes.tsv"
 
     # Skip if already written by an earlier run of the same subject/task
     if out_path.exists():
@@ -1931,6 +1978,32 @@ def _generate_coordsystem_json(
     info(f"  ✓ {out_path.name}")
 
 
+def _generate_events_tsv(
+    snirf_path: Path,
+    bids_stem: str,
+    meta: Dict[str, Any],
+) -> None:
+    """
+    Generate *_events.tsv sidecar from SNIRF stim groups.
+    run-level: one file per SNIRF file (do NOT strip run- entity).
+    """
+    events = meta.get("stim_events")
+    if not events:
+        return
+
+    out_path = snirf_path.parent / f"{bids_stem}_events.tsv"
+    if out_path.exists():
+        info(f"  ✓ {out_path.name} (already exists, skipped)")
+        return
+
+    header = ["onset", "duration", "trial_type"]
+    lines = ["\t".join(header)]
+    for ev in events:
+        lines.append("\t".join(str(ev[h]) for h in header))
+    out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    info(f"  ✓ {out_path.name} ({len(events)} event(s))")
+
+
 def generate_nirs_bids_sidecars(snirf_path: Path, bids_stem: str) -> None:
     """
     Generate all NIRS-BIDS sidecar files for a single SNIRF file.
@@ -1947,10 +2020,13 @@ def generate_nirs_bids_sidecars(snirf_path: Path, bids_stem: str) -> None:
         bids_stem:  Filename without .snirf extension,
                     e.g. "sub-1_task-mentalarithmetic_run-1_nirs"
     """
+    if bids_stem.endswith("_nirs"):
+        bids_stem = bids_stem[:-5]
     try:
         meta = _read_snirf_metadata(snirf_path)
         _generate_nirs_json(snirf_path, bids_stem, meta)
         _generate_channels_tsv(snirf_path, bids_stem, meta)
+        _generate_events_tsv(snirf_path, bids_stem, meta)
         _generate_optodes_tsv(snirf_path, bids_stem, meta)
         _generate_coordsystem_json(snirf_path, bids_stem)
     except Exception as e:

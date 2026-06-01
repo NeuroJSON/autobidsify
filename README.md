@@ -222,7 +222,7 @@ autobidsify full \
 
 ## Current Status
 
-**Version:** 0.9.2
+**Version:** 0.9.5
 
 ## Contributing
 

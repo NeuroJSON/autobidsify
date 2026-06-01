@@ -130,8 +130,10 @@ class TestClassifyAndStage:
     def test_eeg_aux_classified_as_eeg(self, tmp_path):
         # .vmrk, .eeg, .fdt are BrainVision/EEGLAB aux files → eeg pool
         for ext in [".vmrk", ".eeg", ".fdt"]:
-            bundle = self._make_bundle(tmp_path / ext, [f"scan{ext}"])
-            plan = classify_and_stage(bundle, tmp_path / ext)
+            sub_dir = tmp_path / f"run_{ext.strip('.')}"
+            sub_dir.mkdir()
+            bundle = self._make_bundle(sub_dir, [f"scan{ext}"])
+            plan = classify_and_stage(bundle, sub_dir)
             assert f"scan{ext}" in plan["eeg_files"], f"{ext} not in eeg_files"
 
     # ── Unknown / auxiliary files ────────────────────────────────────────

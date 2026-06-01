@@ -83,13 +83,13 @@ declare -a DATASETS=(
     --describe 'Cambridge Centre for Ageing and Neuroscience (CamCAN): The Cambridge Centre for Ageing and Neuroscience (Cam-CAN) is a large-scale project using epidemiological, cognitive, and neuroimaging data to understand how individuals can best retain cognitive abilities into old age. There are 5 phases, with data from Phases 1-3 available now. Phase 2 Arm 1 (CC700): MRI T1 653, T2 653, DWI 642. T1 MPRAGE TR 2250 ms TE 2.99 ms 1 mm iso. T2 SPACE TR 2800 ms TE 408 ms 1 mm iso. Shafto et al. (2014). The Cambridge Centre for Ageing and Neuroscience study protocol. BMC Neurology 14(204). doi: 10.1186/s12883-014-0204-1. Here we only use 30 subjects of this dataset.'"
 
   "autobidsify full \
-    --input datasets/2-CamCAN-no-sidecar \
+    --input datasets/3-Visible-Human-dcm \
     --output OUTPUT_PLACEHOLDER \
     --model MODEL_PLACEHOLDER \
     --modality mri \
     --nsubjects 2 \
     --id-strategy numeric \
-    --describe 'The NLM Visible Human Project has created publicly-available complete, anatomically detailed, three-dimensional representations of a human male body and a human female body. The VHP provides a public-domain library of cross-sectional cryosection, CT, and MRI images obtained from one male cadaver and one female cadaver. The Visible Man data set was publicly released in 1994 and the Visible Woman in 1995. CT data consist of axial CT scans of the entire body taken at 1mm intervals at a pixel resolution of 512 by 512 with each pixel made up of 12 bits of gray tone.'"
+    --describe "The NLM Visible Human Project has created publicly-available complete, anatomically detailed, three-dimensional representations of a human male body and a human female body. Specifically, the VHP provides a public-domain library of cross-sectional cryosection, CT, and MRI images obtained from one male cadaver and one female cadaver. The Visible Man data set was publicly released in 1994 and the Visible Woman in 1995. The Visible Human Male data set consists of MRI, CT, and anatomical images. Axial MRI images of the head and neck, and longitudinal sections of the rest of the body were obtained at 4mm intervals. The MRI images are 256 by 256 pixel resolution with each pixel made up of 12 bits of gray tone. The CT data consist of axial CT scans of the entire body taken at 1mm intervals at a pixel resolution of 512 by 512 with each pixel made up of 12 bits of gray tone. The Visible Human Female data set has the same characteristics as the Visible Human Male. However, the axial anatomical images were obtained at 0.33 mm intervals. Spacing in the “Z” dimension was reduced to 0.33mm in order to match the 0.33mm pixel sizing in the “X-Y” plane. As a result, developers interested in three-dimensional reconstructions are able to work with cubic voxels. There are 5,189 anatomical images in the Visible Human Female data set. The data set size is approximately 40 gigabytes."
 
   "autobidsify full \
     --input datasets/4-openfnirs-parkinson-snirf \

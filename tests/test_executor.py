@@ -64,9 +64,6 @@ class TestMatchGlobPattern:
         assert not _match_glob_pattern("Newark_sub41006/anat/NIfTI/scan.nii.gz",
                                        "**/BRIK/**")
 
-    def test_token_dir_case_insensitive(self):
-        assert _match_glob_pattern("sub-01/anat/brik/scan.nii.gz", "**/BRIK/**")
-
     # ── *token* — substring in path ──────────────────────────────────────
 
     def test_star_token_star_match(self):
@@ -83,18 +80,23 @@ class TestMatchGlobPattern:
     def test_simple_extension_no_match(self):
         assert not _match_glob_pattern("data/scan.nii.gz", "*.dcm")
 
-    # ── regex fallback (LLM sometimes generates regex patterns) ──────────
+    def test_token_dir_case_sensitive(self):
+        # _match_glob_pattern is case-sensitive by design
+        assert     _match_glob_pattern("sub-01/anat/BRIK/scan.nii.gz", "**/BRIK/**")
+        assert not _match_glob_pattern("sub-01/anat/brik/scan.nii.gz", "**/BRIK/**")
 
-    def test_regex_dot_star_matches_all(self):
-        # .* is regex "match anything" — must work via regex fallback
-        assert _match_glob_pattern("Subject08_2.edf", ".*")
-        assert _match_glob_pattern("scan.nii.gz", ".*")
+    # ── glob star matches token in filename ───────────────────────────────
 
-    def test_regex_anchored_suffix(self):
-        assert _match_glob_pattern("Subject00_T1w.nii.gz", ".*T1w.*")
+    def test_glob_star_token_in_filename(self):
+        assert     _match_glob_pattern("Subject00_T1w.nii.gz", "*T1w*")
+        assert not _match_glob_pattern("Subject00_T2w.nii.gz", "*T1w*")
 
-    def test_regex_anchored_no_match(self):
-        assert not _match_glob_pattern("Subject00_T2w.nii.gz", ".*T1w.*")
+    def test_glob_dot_star_not_regex(self):
+        # ".*" in glob means: file starting with a dot followed by anything
+        # It does NOT mean regex "match all" — that is pure-glob behavior
+        assert not _match_glob_pattern("Subject08_2.edf", ".*")
+        # Use **/*.edf to match any edf
+        assert _match_glob_pattern("Subject08_2.edf", "**/*.edf")
 
     # ── prefix ────────────────────────────────────────────────────────────
 
@@ -104,13 +106,16 @@ class TestMatchGlobPattern:
     def test_prefix_no_match(self):
         assert not _match_glob_pattern("VHF_scan.dcm", "VHM*")
 
-    # ── fallback substring ────────────────────────────────────────────────
+    # ── no wildcard = fnmatch on full path or filename ────────────────────
 
-    def test_fallback_substring_match(self):
-        assert _match_glob_pattern("some/path/sub-01/T1w.nii.gz", "sub-01")
+    def test_no_wildcard_matches_filename_exactly(self):
+        # Without wildcards, fnmatch tries exact match on full path then filename
+        assert not _match_glob_pattern("some/path/sub-01/T1w.nii.gz", "sub-01")
+        # Use ** to match across path components
+        assert _match_glob_pattern("some/path/sub-01/T1w.nii.gz", "**/sub-01/**")
 
-    def test_fallback_substring_no_match(self):
-        assert not _match_glob_pattern("some/path/sub-02/T1w.nii.gz", "sub-01")
+    def test_no_wildcard_no_match_different_sub(self):
+        assert not _match_glob_pattern("some/path/sub-02/T1w.nii.gz", "**/sub-01/**")
 
 
 # ============================================================================

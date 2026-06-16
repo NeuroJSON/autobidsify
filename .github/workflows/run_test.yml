@@ -105,3 +105,19 @@ jobs:
           verify_metadata: false
           verbose: true
           skip_existing: true
+
+      # --- Notify the autobidsifyAPP repo to sync & rebuild the desktop app ---
+      # Runs only if the PyPI upload actually happened (same conditions as the
+      # upload step). Sends a repository_dispatch event; the app repo then
+      # compares the 8 vendored files' hashes and rebuilds only if they changed.
+      - name: Notify autobidsifyAPP
+        if: |
+          (github.actor == 'fangq' || github.actor == 'yiyiliu-rose') &&
+          steps.perform_pypi_upload_check.outputs.perform_pypi_upload == 1 &&
+          github.event_name != 'pull_request'
+        run: |
+          curl -sf -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.APP_DISPATCH_TOKEN }}" \
+            https://api.github.com/repos/COTILab/autobidsifyAPP/dispatches \
+            -d '{"event_type":"autobidsify-deployed"}'

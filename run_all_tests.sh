@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# autobidsify batch validation runner — multi-model
+# AutoBIDSify batch validation runner — multi-model
 #
 # Runs every dataset against every model, writes one consolidated HTML report.
 #
@@ -41,21 +41,21 @@ model_label() {
 # Use single quotes for --describe text. Position = run number.
 
 DATASETS=(
-  "python -m autobidsify full --input datasets/1-FRESH-Motor-snirf --output OUTPUT_PLACEHOLDER --model MODEL_PLACEHOLDER --nsubjects 10 --modality nirs --id-strategy numeric --describe 'MNE-BIDS dataset. Appelhoff et al. (2019). License: CC0'"
+  "autobidsify full --input datasets/1-FRESH-Motor-snirf --output OUTPUT_PLACEHOLDER --model MODEL_PLACEHOLDER --nsubjects 10 --modality nirs --id-strategy numeric --describe 'MNE-BIDS dataset. Appelhoff et al. (2019). License: CC0'"
 
-  "python -m autobidsify full --input datasets/2-CamCAN-no-sidecar --output OUTPUT_PLACEHOLDER --model MODEL_PLACEHOLDER --nsubjects 30 --modality mri --id-strategy semantic --describe 'Cambridge Centre for Ageing and Neuroscience CamCAN. Phase 2 Arm 1 CC700: MRI T1 653, T2 653, DWI 642. T1 MPRAGE TR 2250ms TE 2.99ms 1mm iso. Shafto et al. 2014. BMC Neurology 14:204. Here we only use 30 subjects.'"
+  "autobidsify full --input datasets/2-CamCAN-no-sidecar --output OUTPUT_PLACEHOLDER --model MODEL_PLACEHOLDER --nsubjects 30 --modality mri --id-strategy semantic --describe 'Cambridge Centre for Ageing and Neuroscience CamCAN. Phase 2 Arm 1 CC700: MRI T1 653, T2 653, DWI 642. T1 MPRAGE TR 2250ms TE 2.99ms 1mm iso. Shafto et al. 2014. BMC Neurology 14:204. Here we only use 30 subjects.'"
 
-  "python -m autobidsify full --input datasets/3-Visible-Human-dcm --output OUTPUT_PLACEHOLDER --model MODEL_PLACEHOLDER --modality mri --nsubjects 2 --id-strategy numeric --describe 'NLM Visible Human Project. Complete anatomically detailed 3D representations of human male and female body. Public-domain CT and MRI from one male cadaver and one female cadaver. VHM released 1994, VHF 1995. CT axial scans at 1mm intervals, 512x512 pixel, 12 bits per pixel.'"
+  "autobidsify full --input datasets/3-Visible-Human-dcm --output OUTPUT_PLACEHOLDER --model MODEL_PLACEHOLDER --modality mri --nsubjects 2 --id-strategy numeric --describe 'NLM Visible Human Project. Complete anatomically detailed 3D representations of human male and female body. Public-domain CT and MRI from one male cadaver and one female cadaver. VHM released 1994, VHF 1995. CT axial scans at 1mm intervals, 512x512 pixel, 12 bits per pixel.'"
 
-  "python -m autobidsify full --input datasets/4-openfnirs-parkinson-snirf --output OUTPUT_PLACEHOLDER --model MODEL_PLACEHOLDER --modality nirs --nsubjects 40 --id-strategy semantic --describe 'fNIRS dataset Guevara et al 2023 DOI 10.5281/zenodo.7966830. 20 PD patients and 20 healthy controls. Three tasks: resting state file 1_resting_seg_1.snirf task rest, finger tapping file 2_finger_tapping.snirf task fingertapping, walking file 3_walking.snirf task walking. CC BY 4.0.'"
+  "autobidsify full --input datasets/4-openfnirs-parkinson-snirf --output OUTPUT_PLACEHOLDER --model MODEL_PLACEHOLDER --modality nirs --nsubjects 40 --id-strategy semantic --describe 'fNIRS dataset Guevara et al 2023 DOI 10.5281/zenodo.7966830. 20 PD patients and 20 healthy controls. Three tasks: resting state file 1_resting_seg_1.snirf task rest, finger tapping file 2_finger_tapping.snirf task fingertapping, walking file 3_walking.snirf task walking. CC BY 4.0.'"
 
-  "python -m autobidsify full --input datasets/5-RSFC-harvard_dataverse-nirs --output OUTPUT_PLACEHOLDER --model MODEL_PLACEHOLDER --modality nirs --nsubjects 13 --id-strategy numeric --describe 'fNIRS RSFC in Tinnitus. San Juan et al 2017. Harvard Dataverse DOI 10.7910/DVN/ZNZZBV. PLoS ONE 12(6): e0179150.'"
+  "autobidsify full --input datasets/5-RSFC-harvard_dataverse-nirs --output OUTPUT_PLACEHOLDER --model MODEL_PLACEHOLDER --modality nirs --nsubjects 13 --id-strategy numeric --describe 'fNIRS RSFC in Tinnitus. San Juan et al 2017. Harvard Dataverse DOI 10.7910/DVN/ZNZZBV. PLoS ONE 12(6): e0179150.'"
 
-  "python -m autobidsify full --input datasets/6-figshare-9783755-mat --output OUTPUT_PLACEHOLDER --model MODEL_PLACEHOLDER --modality nirs --nsubjects 30 --id-strategy numeric --describe 'Open Access fNIRS Dataset for Classification of Unilateral Finger and Foot Tapping. DOI 10.6084/m9.figshare.9783755. Bak et al 2019. CC BY 4.0.'"
+  "autobidsify full --input datasets/6-figshare-9783755-mat --output OUTPUT_PLACEHOLDER --model MODEL_PLACEHOLDER --modality nirs --nsubjects 30 --id-strategy numeric --describe 'Open Access fNIRS Dataset for Classification of Unilateral Finger and Foot Tapping. DOI 10.6084/m9.figshare.9783755. Bak et al 2019. CC BY 4.0.'"
 
-  "python -m autobidsify full --input datasets/7-mental-arithmetic-mat --output OUTPUT_PLACEHOLDER --model MODEL_PLACEHOLDER --modality nirs --nsubjects 8 --id-strategy numeric --describe 'Mental arithmetic 003-2014 BNCI Horizon 2020. 8 participants, 52 fNIRS channels. Bauernfeind et al 2011. CC BY-ND 4.0.'"
+  "autobidsify full --input datasets/7-mental-arithmetic-mat --output OUTPUT_PLACEHOLDER --model MODEL_PLACEHOLDER --modality nirs --nsubjects 8 --id-strategy numeric --describe 'Mental arithmetic 003-2014 BNCI Horizon 2020. 8 participants, 52 fNIRS channels. Bauernfeind et al 2011. CC BY-ND 4.0.'"
 
-  "python -m autobidsify full --input datasets/8-eeg-mental-arithmetic-edf --output OUTPUT_PLACEHOLDER --model MODEL_PLACEHOLDER --modality eeg --nsubjects 36 --id-strategy numeric --describe 'EEG During Mental Arithmetic Tasks. Published Dec 2018. 23-channel EEG, International 10/20 scheme. Each subject has 2 EDF files: _1 background EEG before task, _2 EEG during arithmetic task. Group G 24 subjects good count, Group B 12 subjects bad count. DOI 10.13026/C2JQ1P. License Open Data Commons Attribution License v1.0. Zyma et al 2019.'"
+  "autobidsify full --input datasets/8-eeg-mental-arithmetic-edf --output OUTPUT_PLACEHOLDER --model MODEL_PLACEHOLDER --modality eeg --nsubjects 36 --id-strategy numeric --describe 'EEG During Mental Arithmetic Tasks. Published Dec 2018. 23-channel EEG, International 10/20 scheme. Each subject has 2 EDF files: _1 background EEG before task, _2 EEG during arithmetic task. Group G 24 subjects good count, Group B 12 subjects bad count. DOI 10.13026/C2JQ1P. License Open Data Commons Attribution License v1.0. Zyma et al 2019.'"
 )
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -202,7 +202,7 @@ done
 
 {
   printf '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n'
-  printf '<title>autobidsify Validation Report</title>\n<style>\n'
+  printf '<title>AutoBIDSify Validation Report</title>\n<style>\n'
   printf 'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0;padding:24px 32px;background:#f5f5f5;color:#222;line-height:1.5}\n'
   printf 'h1{color:#1a1a2e;margin-bottom:4px;font-size:1.8em}\n'
   printf '.meta{color:#666;font-size:.9em;margin-bottom:28px}\n'
@@ -227,7 +227,7 @@ done
   printf 'code.tag{background:#eef;border-radius:4px;padding:1px 6px;font-size:.85em}\n'
   printf '</style>\n</head>\n<body>\n'
 
-  printf '<h1>autobidsify Validation Report</h1>\n'
+  printf '<h1>AutoBIDSify Validation Report</h1>\n'
   printf '<p class="meta">Generated: %s &nbsp;|&nbsp; Datasets: %d &nbsp;|&nbsp; Runs: %d</p>\n' \
     "${TIMESTAMP}" "${NUM_DATASETS}" "${#ALL_NAMES[@]}"
 

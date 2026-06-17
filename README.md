@@ -1,29 +1,37 @@
-# autobidsify
+# AutoBIDSify
 
-Automated Brain Imaging Data Structure (BIDS) standardization tool powered by LLM-first architecture.
+Automated Brain Imaging Data Structure (BIDS) standardization tool powered by an LLM-first architecture.
 
 [![Website](https://img.shields.io/badge/Website-AutoBIDSify-blue)](https://neurojson.org/Page/autobidsify)
 [![PyPI version](https://badge.fury.io/py/autobidsify.svg)](https://pypi.org/project/autobidsify/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## Features
+AutoBIDSify helps convert raw neuroimaging datasets into BIDS-compatible structures. It is designed for real-world datasets with inconsistent folder layouts, incomplete metadata, heterogeneous naming conventions, and mixed modalities.
 
-- **General compatibility**: Handles diverse dataset structures (flat, hierarchical, multi-site)
-- **Multi-modal support**: MRI, fNIRS, EEG, and mixed modality datasets
-- **Intelligent metadata extraction**: Automatic participant demographics from DICOM headers, documents, and filenames
-- **Format conversion**: DICOM→NIfTI, JNIfTI→NIfTI, .mat/.nirs→SNIRF, and more
-- **Multi-LLM support**: OpenAI (gpt-4o, gpt-5.1) and Qwen (via Ollama locally, REST API, or DashScope)
-- **Evidence-based reasoning**: Confidence scoring and provenance tracking for all decisions
+## Key Features
 
-## Supported Formats
+- **Multi-modal support**: MRI, fNIRS, EEG, and mixed-modality datasets
+- **Flexible input handling**: Supports flat, nested, multi-subject, and multi-site dataset structures
+- **Format conversion**: DICOM → NIfTI, JNIfTI → NIfTI, `.mat`/`.nirs` → SNIRF, and EEG formats such as EDF/EDF+
+- **Metadata extraction**: Uses file headers, filenames, folder structure, and auxiliary documents to infer BIDS metadata
+- **LLM-assisted reasoning**: Uses LLMs for semantic decisions such as scan classification, task inference, event-file interpretation, and metadata normalization
+- **Provenance-aware output**: Tracks decisions, confidence, intermediate evidence, and conversion logs
+- **Validation support**: Supports BIDS validation after conversion
 
-**Input formats:**
-- MRI: DICOM (.dcm), NIfTI (.nii, .nii.gz), JNIfTI (.jnii, .bnii)
-- fNIRS: SNIRF (.snirf), Homer3 (.nirs), MATLAB (.mat)
-- EEG: EDF/EDF+ (.edf), BrainVision (.vhdr), EEGLAB (.set), Biosemi (.bdf)
-- Documents: PDF, DOCX, TXT, Markdown
+## Supported Data Types and Formats
 
-**Output:** Compliant to [BIDS specification (v1.10.0)](https://bids-specification.readthedocs.io/en/stable/)
+### Input formats
+
+| Modality | Supported input formats |
+|---|---|
+| MRI | DICOM (`.dcm`), NIfTI (`.nii`, `.nii.gz`), JNIfTI (`.jnii`, `.bnii`) |
+| fNIRS | SNIRF (`.snirf`), Homer/Homer3 (`.nirs`), MATLAB (`.mat`) |
+| EEG | EDF/EDF+ (`.edf`), BrainVision (`.vhdr`), EEGLAB (`.set`), Biosemi (`.bdf`) |
+| Documents | PDF, DOCX, TXT, Markdown |
+
+### Output
+
+AutoBIDSify generates a BIDS-compatible dataset following the [BIDS specification](https://bids-specification.readthedocs.io/en/stable/).
 
 ## Installation
 
@@ -31,33 +39,46 @@ Automated Brain Imaging Data Structure (BIDS) standardization tool powered by LL
 pip install autobidsify
 ```
 
-**Optional dependencies:**
+### Optional dependencies
+
 ```bash
-# For BIDS validation
+# For full BIDS validation
 npm install -g bids-validator
 
 # For DICOM conversion
-pip install dcm2niix          # or: apt-get install dcm2niix / brew install dcm2niix
+pip install dcm2niix
+# Alternative installation options:
+# apt-get install dcm2niix
+# brew install dcm2niix
 ```
 
-**Set API key:**
-```bash
-# OpenAI
-export OPENAI_API_KEY="your-key-here"
+## API Keys and Model Setup
 
-# Qwen via DashScope (optional cloud alternative to Ollama)
+### OpenAI
+
+```bash
+export OPENAI_API_KEY="your-key-here"
+```
+
+### Qwen via DashScope
+
+```bash
 export DASHSCOPE_API_KEY="your-key-here"
 ```
 
-**Run all testing datasets:**
+### Qwen via local or remote Ollama
+
 ```bash
-./run_all_tests.sh
+ollama serve
+# Optional: use a remote Ollama endpoint
+export OLLAMA_BASE_URL=http://your-server.com:xxxx
 ```
 
 ## Quick Start
 
+### Run the full pipeline
+
 ```bash
-# Full pipeline (one command)
 autobidsify full \
   --input /path/to/your/data \
   --output outputs/my_dataset \
@@ -66,8 +87,11 @@ autobidsify full \
   --nsubjects 10 \
   --id-strategy auto \
   --describe "Your dataset description here"
+```
 
-# Step-by-step execution
+### Run step by step
+
+```bash
 autobidsify ingest   --input data/ --output outputs/run
 autobidsify evidence --output outputs/run --modality mri
 autobidsify trio     --output outputs/run --model gpt-4o
@@ -78,127 +102,38 @@ autobidsify validate --output outputs/run
 
 ## Command Options
 
-```
---input PATH            Input data (archive or directory)
---output PATH           Output directory
---model MODEL           LLM model (default: gpt-4o, maximum context 128000 tokens)
---modality TYPE         Data modality: mri | nirs | eeg | mixed
---nsubjects N           Number of subjects (optional, auto-detected if omitted)
---describe "TEXT"       Dataset description (recommended for metadata accuracy)
---id-strategy STRATEGY  Subject ID strategy: auto | numeric | semantic (default: auto)
-```
+| Option | Description |
+|---|---|
+| `--input PATH` | Input data directory or archive |
+| `--output PATH` | Output directory |
+| `--model MODEL` | LLM model to use, for example `gpt-4o`, `gpt-4o-mini`, `gpt-5.1`, `qwen3-coder-next:latest`, or `qwen-max` |
+| `--modality TYPE` | Data modality: `mri`, `nirs`, `eeg`, or `mixed` |
+| `--nsubjects N` | Number of subjects; optional and auto-detected if omitted |
+| `--id-strategy STRATEGY` | Subject ID strategy: `auto`, `numeric`, or `semantic`; default is `auto` |
+| `--describe "TEXT"` | Dataset description; recommended for more accurate metadata inference |
 
 ## Supported Models
 
-**OpenAI:**
+### OpenAI
+
 ```bash
 --model gpt-4o           # Recommended, stable
 --model gpt-4o-mini      # Faster, cheaper
---model gpt-5.1          # Latest
+--model gpt-5.1          # Latest supported OpenAI model option
 ```
 
-**Qwen (via local Ollama):**
+### Qwen via local Ollama
+
 ```bash
 --model qwen3-coder-next:latest     # Recommended
 --model qwen3-coder-careful:latest  # Recommended
---model qwen2.5-coder:7b            # Not recommended, slow and sometimes inaccurate
+--model qwen2.5-coder:7b            # Available but slower and less reliable
 ```
 
-**Qwen (via remote Ollama REST API):**
+### Qwen via remote Ollama REST API
+
 ```bash
 export OLLAMA_BASE_URL=http://your-server.com:xxxx
---model qwen3-coder-next:latest
-```
-
-**Qwen (via DashScope cloud API):**
-```bash
-export DASHSCOPE_API_KEY="your-key-here"
---model qwen-max
-```
-
-## Pipeline Stages
-
-| Stage | Command | Input | Output | Purpose |
-|-------|---------|-------|--------|---------|
-| 1 | `ingest` | Raw data | `ingest_info.json` | Extract/reference data |
-| 2 | `evidence` | All files | `evidence_bundle.json` | Analyze structure, detect subjects, scan auxiliary files |
-| 3 | `classify` | Mixed data | `classification_plan.json`, pool directories | Separate MRI/fNIRS/EEG (optional, mixed only) |
-| 4 | `trio` | Evidence | BIDS trio files | Generate dataset_description.json, README, participants.tsv |
-| 5 | `plan` | Evidence + trio | `BIDSPlan.yaml` | Create conversion strategy, generate modality-specific mappings |
-| 6 | `execute` | Plan | `bids_compatible/`, `conversion_log.json`, `BIDSManifest.yaml` | Execute conversions, generate BIDS sidecars |
-| 7 | `validate` | BIDS dataset | Validation report | Check compliance (Tier 1: Python bids_validator, Tier 2: npm bids-validator) |
-
-## Output Structure
-
-```
-outputs/my_dataset/
-├── bids_compatible/              # Final BIDS dataset
-│   ├── dataset_description.json
-│   ├── README.md
-│   ├── participants.tsv
-│   ├── sub-001/
-│   │   ├── anat/
-│   │   │   └── sub-001_T1w.nii.gz
-│   │   ├── func/
-│   │   │   └── sub-001_task-rest_bold.nii.gz
-│   │   ├── nirs/
-│   │   │   ├── sub-001_task-rest_nirs.snirf
-│   │   │   └── sub-001_task-rest_nirs.json
-│   │   └── eeg/
-│   │       ├── sub-001_task-rest_eeg.edf
-│   │       ├── sub-001_task-rest_eeg.json
-│   │       ├── sub-001_task-rest_channels.tsv
-│   │       ├── sub-001_optodes.tsv        # fNIRS only
-│   │       ├── sub-001_electrodes.tsv     # EEG only
-│   │       └── sub-001_coordsystem.json
-│   └── derivatives/              # Unprocessed files (original structure)
-└── _staging/                     # Intermediate files
-    ├── evidence_bundle.json
-    ├── BIDSPlan.yaml
-    ├── mat_mapping.json           # fNIRS .mat datasets only
-    ├── eeg_event_mapping.json     # EEG datasets with event files
-    ├── eeg_aux_mapping.json       # EEG datasets with auxiliary metadata
-    └── conversion_log.json
-```
-
-## Examples
-
-### MRI dataset
-```bash
-autobidsify full \
-  --input brain_scans/ \
-  --output outputs/study1 \
-  --model gpt-4o \
-  --modality mri \
-  --nsubjects 30 \
-  --id-strategy numeric \
-  --describe "Single-site T1w MRI study, 30 healthy adults"
-```
-
-### fNIRS dataset
-```bash
-autobidsify full \
-  --input fnirs_data/ \
-  --output outputs/fnirs \
-  --model gpt-4o \
-  --modality nirs \
-  --describe "Prefrontal fNIRS, 20 subjects, resting state and finger tapping"
-```
-
-### EEG dataset
-```bash
-autobidsify full \
-  --input eeg_data/ \
-  --output outputs/eeg \
-  --model gpt-4o \
-  --modality eeg \
-  --nsubjects 36 \
-  --describe "EEG during mental arithmetic tasks, 36 subjects, EDF format"
-```
-
-### Using Qwen (local, no API cost)
-```bash
-ollama serve
 autobidsify full \
   --input data/ \
   --output outputs/run \
@@ -206,25 +141,114 @@ autobidsify full \
   --modality mri
 ```
 
+### Qwen via DashScope cloud API
+
+```bash
+export DASHSCOPE_API_KEY="your-key-here"
+autobidsify full \
+  --input data/ \
+  --output outputs/run \
+  --model qwen-max \
+  --modality mri
+```
+
+## Pipeline Stages
+
+| Stage | Command | Main input | Main output | Purpose |
+|---|---|---|---|---|
+| 1 | `ingest` | Raw data | `ingest_info.json` | Index input files and extract basic file information |
+| 2 | `evidence` | Indexed files | `evidence_bundle.json` | Analyze dataset structure, detect subjects, and collect metadata evidence |
+| 3 | `classify` | Mixed-modality data | `classification_plan.json`, modality pools | Separate MRI, fNIRS, and EEG files; mainly used for mixed datasets |
+| 4 | `trio` | Evidence bundle | BIDS trio files | Generate `dataset_description.json`, `README`, and `participants.tsv` |
+| 5 | `plan` | Evidence + BIDS trio | `BIDSPlan.yaml` | Create the conversion plan and modality-specific mappings |
+| 6 | `execute` | BIDS plan | `bids_compatible/`, `conversion_log.json`, `BIDSManifest.yaml` | Execute conversion and generate BIDS files/sidecars |
+| 7 | `validate` | BIDS dataset | Validation report | Validate the generated BIDS dataset |
+
+## Example Output Structure
+
+```text
+outputs/my_dataset/
+├── bids_compatible/                    # Final BIDS-compatible dataset
+│   ├── dataset_description.json
+│   ├── README.md
+│   ├── participants.tsv
+│   ├── sub-001/
+│   │   ├── anat/                       # MRI anatomical data
+│   │   │   └── sub-001_T1w.nii.gz
+│   │   ├── func/                       # MRI functional data, if present
+│   │   │   └── sub-001_task-rest_bold.nii.gz
+│   │   ├── nirs/                       # fNIRS data, if present
+│   │   │   ├── sub-001_task-rest_nirs.snirf
+│   │   │   ├── sub-001_task-rest_nirs.json
+│   │   │   └── sub-001_optodes.tsv
+│   │   └── eeg/                        # EEG data, if present
+│   │       ├── sub-001_task-rest_eeg.edf
+│   │       ├── sub-001_task-rest_eeg.json
+│   │       ├── sub-001_task-rest_channels.tsv
+│   │       ├── sub-001_electrodes.tsv
+│   │       └── sub-001_coordsystem.json
+│   └── derivatives/                    # Unprocessed or copied auxiliary files, when needed
+└── _staging/                           # Intermediate AutoBIDSify files
+    ├── ingest_info.json
+    ├── evidence_bundle.json
+    ├── classification_plan.json         # Mixed-modality datasets only
+    ├── BIDSPlan.yaml
+    ├── mat_mapping.json                 # fNIRS .mat datasets only
+    ├── eeg_event_mapping.json           # EEG datasets with event files
+    ├── eeg_aux_mapping.json             # EEG datasets with auxiliary metadata
+    ├── conversion_log.json
+    └── BIDSManifest.yaml
+```
+
 ## Architecture
 
-**LLM-First Design:**
-- **Python**: Deterministic operations — file I/O, regex-based subject detection, format conversion, BIDS validation, standard 10-20 electrode lookup
-- **LLM**: Semantic understanding — dataset description, metadata extraction, scan type classification, license normalization, event file column mapping, auxiliary file analysis
-- **Hybrid**: Python analyzes ALL files for completeness; LLM sees representative samples for semantic decisions
+AutoBIDSify uses a hybrid architecture that combines deterministic Python operations with LLM-assisted semantic reasoning.
+
+- **Python-based components** handle file I/O, archive extraction, subject detection, format conversion, BIDS file generation, validation, and standard EEG electrode lookup.
+- **LLM-based components** handle semantic tasks such as dataset description generation, metadata interpretation, scan type classification, task label inference, license normalization, event-file mapping, and auxiliary-file interpretation.
+- **Hybrid reasoning** allows Python to inspect all files for completeness while the LLM receives representative evidence for higher-level decisions.
 
 ## Requirements
 
-- Python 3.10+
-- OpenAI API key (or Ollama for local Qwen models)
-- `bids-validator` (npm) for full structural validation (optional)
-- `dcm2niix` for DICOM conversion (optional)
+- Python 3.8+
+- OpenAI API key, local Ollama model, remote Ollama endpoint, or DashScope API key
+- `bids-validator` for full BIDS validation, optional
+- `dcm2niix` for DICOM conversion, optional
 
 ## Current Status
 
 **Version:** 0.9.6
 
-## Contributing
+AutoBIDSify is under active development. Current work focuses on improving robustness across MRI, fNIRS, EEG, and mixed-modality datasets with diverse real-world structures.
 
-We need YOUR datasets to improve robustness. Please test and report issues at:
+## Contributing Test Datasets
+
+We welcome representative examples that can help improve AutoBIDSify across real-world dataset structures, metadata conventions, scanner/vendor differences, and modality-specific edge cases.
+
+Full DICOM image data is **not required** in most cases. We understand that sharing patient DICOM data is usually not feasible for many centers. The most practical and recommended contribution is a small, de-identified example that includes the raw organization, metadata, and expected BIDS-compatible output structure.
+
+A possible contribution format is:
+
+```text
+example_dataset/
+├── raw_tree.txt              # Original file/folder structure, e.g., output from the tree command
+├── dicom_metadata/           # De-identified or pseudonymized DICOM metadata, without image data
+│   ├── series_001.json       # One metadata JSON file per series
+│   ├── series_002.json       # Include fields such as ProtocolName, SeriesDescription, Modality, etc.
+│   └── ...
+├── expected_bids_tree.txt    # Expected BIDS-compatible output directory structure
+└── notes.md                  # Mapping decisions, ambiguous cases, manual corrections, or other notes
+```
+
+For EEG and fNIRS datasets, the same idea applies: a raw folder tree, representative de-identified metadata or header information, relevant auxiliary files if shareable, and an expected BIDS-compatible output tree are very helpful for testing and debugging.
+
+The expected BIDS structure does not need to be an official existing ground truth. Since many messy datasets do not already have ground-truth BIDS labels, it can be manually designed during testing or manually corrected after running AutoBIDSify.
+
+Please do not share identifiable or sensitive data. If you are unsure whether a dataset can be shared, please only provide de-identified metadata, a simplified folder tree, and a manually prepared expected BIDS tree.
+
+Please test AutoBIDSify and report issues at:
 https://github.com/cotilab/autobidsify/issues
+
+## License
+
+This project is released under the MIT License.

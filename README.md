@@ -221,6 +221,31 @@ AutoBIDSify uses a hybrid architecture that combines deterministic Python operat
 
 AutoBIDSify is under active development. Current work focuses on improving robustness across MRI, fNIRS, EEG, and mixed-modality datasets with diverse real-world structures.
 
+## Desktop Application
+
+A graphical desktop application is available for users who prefer not to use the command line.
+Two versions are provided:
+
+**AutoBIDSify ExecVal** — Execute and validate only. No AI or API key required.
+Runs the execute and validate stages locally using a pre-generated BIDS plan.
+
+| Platform | Download |
+|---|---|
+| Windows | [AutoBIDSify-ExecVal-Windows.zip](https://github.com/yiyiliu-rose/autobidsifyAPP/releases/download/latest-execval/AutoBIDSify-ExecVal-Windows.zip) |
+| macOS (Apple Silicon) | [AutoBIDSify-ExecVal-macOS-arm64.zip](https://github.com/yiyiliu-rose/autobidsifyAPP/releases/download/latest-execval/AutoBIDSify-ExecVal-macOS-arm64.zip) |
+| Linux | [AutoBIDSify-ExecVal-Linux.tar.gz](https://github.com/yiyiliu-rose/autobidsifyAPP/releases/download/latest-execval/AutoBIDSify-ExecVal-Linux.tar.gz) |
+
+**AutoBIDSify Full** — Complete pipeline with AI. Requires an OpenAI API key, local Ollama model, or DashScope API key.
+Runs the full autobidsify pipeline from ingestion to validation.
+
+| Platform | Download |
+|---|---|
+| Windows | [AutoBIDSify-Full-Windows.zip](https://github.com/yiyiliu-rose/autobidsifyAPP/releases/download/latest-full/AutoBIDSify-Full-Windows.zip) |
+| macOS (Apple Silicon) | [AutoBIDSify-Full-macOS-arm64.zip](https://github.com/yiyiliu-rose/autobidsifyAPP/releases/download/latest-full/AutoBIDSify-Full-macOS-arm64.zip) |
+| Linux | [AutoBIDSify-Full-Linux.tar.gz](https://github.com/yiyiliu-rose/autobidsifyAPP/releases/download/latest-full/AutoBIDSify-Full-Linux.tar.gz) |
+
+All releases: [https://github.com/yiyiliu-rose/autobidsifyAPP/releases](https://github.com/yiyiliu-rose/autobidsifyAPP/releases)
+
 ## Contributing Test Datasets
 
 We welcome representative examples that can help improve AutoBIDSify across real-world dataset structures, metadata conventions, scanner/vendor differences, and modality-specific edge cases.

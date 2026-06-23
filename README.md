@@ -233,18 +233,18 @@ Runs the `execute` and `validate` stages locally using a pre-generated BIDS plan
 
 | Platform              | Download                                                                                                                                                     |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Windows               | [AutoBIDSify-ExecVal-Windows.zip](https://github.com/yiyiliu-rose/autobidsifyAPP/releases/download/execval-manual-6/AutoBIDSify-ExecVal-Windows.zip)         |
-| macOS (Apple Silicon) | [AutoBIDSify-ExecVal-macOS-arm64.zip](https://github.com/yiyiliu-rose/autobidsifyAPP/releases/download/execval-manual-6/AutoBIDSify-ExecVal-macOS-arm64.zip) |
-| Linux                 | [AutoBIDSify-ExecVal-Linux.tar.gz](https://github.com/yiyiliu-rose/autobidsifyAPP/releases/download/execval-manual-6/AutoBIDSify-ExecVal-Linux.tar.gz)       |
+| Windows               | [AutoBIDSify-ExecVal-Windows.zip](https://github.com/yiyiliu-rose/autobidsifyAPP/releases/download/latest-execval/AutoBIDSify-ExecVal-Windows.zip)         |
+| macOS (Apple Silicon) | [AutoBIDSify-ExecVal-macOS-arm64.zip](https://github.com/yiyiliu-rose/autobidsifyAPP/releases/download/latest-execval/AutoBIDSify-ExecVal-macOS-arm64.zip) |
+| Linux                 | [AutoBIDSify-ExecVal-Linux.tar.gz](https://github.com/yiyiliu-rose/autobidsifyAPP/releases/download/latest-execval/AutoBIDSify-ExecVal-Linux.tar.gz)       |
 
 **AutoBIDSify Full** — Complete pipeline with AI. Requires an OpenAI API key, local Ollama model, or DashScope API key.
 Runs the full AutoBIDSify pipeline from ingestion to validation.
 
 | Platform              | Download                                                                                                                                                        |
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Windows               | [AutoBIDSify-Full-Windows.zip](https://github.com/yiyiliu-rose/autobidsifyAPP/releases/download/full-auto-20260623-002843/AutoBIDSify-Full-Windows.zip)         |
-| macOS (Apple Silicon) | [AutoBIDSify-Full-macOS-arm64.zip](https://github.com/yiyiliu-rose/autobidsifyAPP/releases/download/full-auto-20260623-002843/AutoBIDSify-Full-macOS-arm64.zip) |
-| Linux                 | [AutoBIDSify-Full-Linux.tar.gz](https://github.com/yiyiliu-rose/autobidsifyAPP/releases/download/full-auto-20260623-002843/AutoBIDSify-Full-Linux.tar.gz)       |
+| Windows               | [AutoBIDSify-Full-Windows.zip](https://github.com/yiyiliu-rose/autobidsifyAPP/releases/download/latest-full/AutoBIDSify-Full-Windows.zip)         |
+| macOS (Apple Silicon) | [AutoBIDSify-Full-macOS-arm64.zip](https://github.com/yiyiliu-rose/autobidsifyAPP/releases/download/latest-full/AutoBIDSify-Full-macOS-arm64.zip) |
+| Linux                 | [AutoBIDSify-Full-Linux.tar.gz](https://github.com/yiyiliu-rose/autobidsifyAPP/releases/download/latest-full/AutoBIDSify-Full-Linux.tar.gz)       |
 
 Linux note: both desktop apps require a desktop environment with Tk and are built for GLIBC 2.35+.
 

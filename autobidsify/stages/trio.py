@@ -4,13 +4,13 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 import json
 import re
-from autobidsify.utils import write_json, write_text, read_json, warn, info, fatal, debug
+from autobidsify.utils import write_json, write_text, read_text, read_json, warn, info, fatal, debug
 from autobidsify.constants import (
     TRIO_README, TRIO_PARTICIPANTS, TRIO_DATASET_DESC,
     LICENSE_WHITELIST, SEVERITY_WARN, SEVERITY_INFO
 )
 from autobidsify.llm import llm_trio_dataset_description, llm_trio_readme, llm_trio_participants
-from autobidsify.anonymize import scrub_evidence_bundle, scrub_participants_tsv
+from autobidsify.anonymize import scrub_evidence_bundle, scrub_participants_tsv, scrub_text
 
 DEBUG_MODE = True
 
@@ -487,6 +487,16 @@ def generate_readme(model: str, bundle: Dict[str, Any], out_dir: Path,
     for item in out_dir.iterdir():
         if item.is_file() and item.name.lower() in readme_variants:
             info(f"✓ Found existing: {item.name}")
+            if anonymize:
+                # An existing README may contain PHI (names, dates, emails,
+                # phone numbers). Scrub it in place before keeping it,
+                # otherwise it would propagate unredacted into the output.
+                try:
+                    original = read_text(item)
+                    write_text(item, scrub_text(original))
+                    info(f"  ✓ Existing README scrubbed (anonymize=True)")
+                except Exception as e:
+                    warn(f"  Could not scrub existing README {item.name}: {e}")
             return {"warnings": [], "questions": []}
 
     payload = json.dumps({

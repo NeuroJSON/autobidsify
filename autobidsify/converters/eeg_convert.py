@@ -11,49 +11,6 @@ from collections import Counter
 
 from autobidsify.utils import ensure_dir, warn, info, write_json
 
-# ============================================================================
-# Standard 10-20 electrode coordinates (MNI/CapTrak approximation)
-# Source: standard BIDS electrodes for 10-20 system
-# Coordinates are in mm, CapTrak coordinate system
-# ============================================================================
-_STANDARD_1020_COORDS: Dict[str, tuple] = {
-    "Fp1": (-27.0, 83.0, -3.0),   "Fp2": (27.0, 83.0, -3.0),
-    "F7":  (-54.0, 46.0, 0.0),    "F3":  (-40.0, 57.0, 50.0),
-    "Fz":  (0.0,   60.0, 60.0),   "F4":  (40.0,  57.0, 50.0),
-    "F8":  (54.0,  46.0, 0.0),    "FC5": (-64.0, 22.0, 26.0),
-    "FC1": (-22.0, 36.0, 74.0),   "FC2": (22.0,  36.0, 74.0),
-    "FC6": (64.0,  22.0, 26.0),   "T7":  (-71.0, 0.0,  0.0),
-    "C3":  (-50.0, 0.0,  60.0),   "Cz":  (0.0,   0.0,  90.0),
-    "C4":  (50.0,  0.0,  60.0),   "T8":  (71.0,  0.0,  0.0),
-    "TP9": (-76.0, -28.0, -15.0), "CP5": (-64.0, -22.0, 26.0),
-    "CP1": (-22.0, -36.0, 74.0),  "CP2": (22.0,  -36.0, 74.0),
-    "CP6": (64.0,  -22.0, 26.0),  "TP10":(76.0,  -28.0, -15.0),
-    "P7":  (-54.0, -46.0, 0.0),   "P3":  (-40.0, -57.0, 50.0),
-    "Pz":  (0.0,   -60.0, 60.0),  "P4":  (40.0,  -57.0, 50.0),
-    "P8":  (54.0,  -46.0, 0.0),   "PO9": (-46.0, -73.0, -15.0),
-    "O1":  (-27.0, -83.0, -3.0),  "Oz":  (0.0,   -88.0, 0.0),
-    "O2":  (27.0,  -83.0, -3.0),  "PO10":(46.0,  -73.0, -15.0),
-    "AF7": (-37.0, 72.0,  10.0),  "AF3": (-18.0, 72.0,  38.0),
-    "AF4": (18.0,  72.0,  38.0),  "AF8": (37.0,  72.0,  10.0),
-    "F5":  (-50.0, 53.0,  26.0),  "F1":  (-15.0, 62.0,  60.0),
-    "F2":  (15.0,  62.0,  60.0),  "F6":  (50.0,  53.0,  26.0),
-    "FT9": (-65.0, 20.0,  -15.0), "FT7": (-64.0, 22.0,  0.0),
-    "FC3": (-40.0, 35.0,  60.0),  "FC4": (40.0,  35.0,  60.0),
-    "FT8": (64.0,  22.0,  0.0),   "FT10":(65.0,  20.0,  -15.0),
-    "C5":  (-64.0, 0.0,   26.0),  "C1":  (-22.0, 0.0,   80.0),
-    "C2":  (22.0,  0.0,   80.0),  "C6":  (64.0,  0.0,   26.0),
-    "TP7": (-64.0, -22.0, 0.0),   "CP3": (-40.0, -35.0, 60.0),
-    "CP4": (40.0,  -35.0, 60.0),  "TP8": (64.0,  -22.0, 0.0),
-    "P5":  (-50.0, -53.0, 26.0),  "P1":  (-15.0, -62.0, 60.0),
-    "P2":  (15.0,  -62.0, 60.0),  "P6":  (50.0,  -53.0, 26.0),
-    "PO7": (-37.0, -72.0, 10.0),  "PO3": (-18.0, -72.0, 38.0),
-    "PO4": (18.0,  -72.0, 38.0),  "PO8": (37.0,  -72.0, 10.0),
-    "A1":  (-80.0, -18.0, -30.0), "A2":  (80.0,  -18.0, -30.0),
-    "M1":  (-80.0, -18.0, -30.0), "M2":  (80.0,  -18.0, -30.0),
-    "T3":  (-71.0, 0.0,   0.0),   "T4":  (71.0,  0.0,   0.0),
-    "T5":  (-54.0, -46.0, 0.0),   "T6":  (54.0,  -46.0, 0.0),
-    "Pg1": (-35.0, 80.0,  -25.0), "Pg2": (35.0,  80.0,  -25.0),
-}
 
 
 # ============================================================================
@@ -765,10 +722,13 @@ def _generate_electrodes_tsv(
     """
     Generate *_electrodes.tsv (subject-level, RECOMMENDED).
 
-    Coordinate priority:
-    1. Auxiliary file identified by LLM in eeg_aux_mapping.json
-    2. Standard 10-20 lookup table (for channels matching known electrode names)
-    3. n/a for unrecognized channels
+    Coordinates are taken only from a real auxiliary coordinate file
+    identified by the LLM in eeg_aux_mapping.json. Template/idealized
+    positions (e.g. a standard 10-20 lookup table) are intentionally NOT
+    used, following MNE-BIDS guidance: electrodes.tsv is optional and
+    should reflect measured positions, not idealized ones. If no aux
+    coordinate file is available, this function returns False and no
+    electrodes.tsv is written. Channels absent from the aux file get n/a.
 
     Returns True if file was created.
     """
@@ -869,10 +829,8 @@ def _generate_eeg_coordsystem_json(
         "EEGCoordinateSystem":      coord_system,
         "EEGCoordinateUnits":       coord_units,
         "EEGCoordinateSystemDescription": (
-            "Standard 10-20 electrode positions (CapTrak system). "
-            "Coordinates are approximate template positions."
-            if coord_system == "CapTrak" else
-            f"Coordinate system: {coord_system}"
+            "Electrode coordinates derived from an auxiliary coordinate "
+            f"file provided with the dataset (coordinate system: {coord_system})."
         ),
     }
     write_json(out_path, content)

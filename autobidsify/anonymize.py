@@ -18,12 +18,14 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import re
 import shutil
 import subprocess
 import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 from autobidsify.utils import warn, info
 
@@ -256,7 +258,8 @@ def _scrub_dicom_header_dict(header: Dict[str, Any],
 # contain "name"/"id"/"date" as substrings) are preserved.
 _REMOVE_KEYS = frozenset(HIPAA_DICOM_TAGS) | {"PatientName", "PatientID"}
 _DATE_KEYS = frozenset(HIPAA_DICOM_DATE_TAGS)
-_TEXT_KEYS = frozenset({"text", "summary", "user_text", "describe"})
+_TEXT_KEYS = frozenset({"text", "summary", "user_text", "describe",
+                        "content", "parsed_text"})
 
 
 def _scrub_node(node: Any, site_registry: Dict[str, str]) -> None:
@@ -597,10 +600,39 @@ def is_local_model(model: str) -> bool:
     return False
 
 
+def _assert_local_ollama_endpoint() -> None:
+    """
+    Raise SystemExit if OLLAMA_BASE_URL points at a non-local host while
+    anonymize=True.
+
+    A local Ollama model name passes is_local_model(), but if the user
+    has exported OLLAMA_BASE_URL pointing at a remote server, inference
+    data still leaves the machine — breaking the privacy guarantee.
+    localhost / 127.0.0.1 / ::1 are allowed; any other host is fatal.
+    """
+    url = os.getenv("OLLAMA_BASE_URL")
+    if not url:
+        return
+    host = (urlparse(url).hostname or "").lower()
+    if host not in ("localhost", "127.0.0.1", "::1", ""):
+        print(
+            f"\n[FATAL] --anonymize requires a local Ollama endpoint to protect privacy.\n"
+            f"        OLLAMA_BASE_URL points to remote host '{host}'.\n"
+            f"        Inference data would leave this machine.\n"
+            f"        Unset OLLAMA_BASE_URL, or point it at localhost:\n"
+            f"          unset OLLAMA_BASE_URL\n",
+            flush=True,
+        )
+        raise SystemExit(1)
+
+
 def assert_local_model_for_anonymize(model: str) -> None:
     """
-    Raise SystemExit with a clear error message if the given model is not
-    a local Ollama model and anonymize=True has been requested.
+    Raise SystemExit with a clear error message if anonymize=True has been
+    requested but the inference target is not fully local. Two conditions
+    are checked:
+      1. The model must be a local Ollama model (is_local_model()).
+      2. OLLAMA_BASE_URL, if set, must point at a local host.
 
     Call this at the start of any LLM-calling stage when anonymize=True.
 
@@ -618,3 +650,4 @@ def assert_local_model_for_anonymize(model: str) -> None:
             flush=True,
         )
         raise SystemExit(1)
+    _assert_local_ollama_endpoint()

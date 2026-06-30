@@ -18,6 +18,7 @@ from autobidsify.converters.nirs_convert import (
     convert_nirs_to_snirf,
 )
 from autobidsify.converters.eeg_convert import generate_eeg_bids_sidecars
+from autobidsify.anonymize import scrub_sidecar_json, scrub_participants_tsv, deface_nifti
 
 
 def _sanitize_bids_label(label: str) -> str:
@@ -580,6 +581,8 @@ def execute_bids_plan(
     output_dir: Path,
     plan: Dict[str, Any],
     aux_inputs: Dict[str, Any],
+    anonymize: bool = False,
+    deface: bool = False,
 ) -> Dict[str, Any]:
     """
     Execute the BIDS conversion plan produced by the planner stage.
@@ -951,6 +954,18 @@ def execute_bids_plan(
                                 successes += 1; done = True
                                 for f in gdata["files"]:
                                     processed_sources.add(f)
+                                # Scrub sidecar JSON if anonymize=True
+                                if anonymize:
+                                    json_path = dst.with_suffix("").with_suffix(".json")
+                                    if not json_path.exists():
+                                        # dcm2niix may name it without .nii in stem
+                                        json_path = dst.parent / (dst.name.replace(".nii.gz", ".json"))
+                                    if json_path.exists():
+                                        scrub_sidecar_json(json_path)
+                                        info(f"      ✓ Sidecar scrubbed: {json_path.name}")
+                                # Deface anat NIfTI if deface=True
+                                if deface and subdirectory == "anat" and dst.exists():
+                                    deface_nifti(dst)
                             else:
                                 warn("      ✗ DICOM conversion failed"); failures += 1
                         else:
@@ -966,6 +981,9 @@ def execute_bids_plan(
                     successes += 1; done = True
                     processed_sources.add(fp_str)
                     generate_nirs_bids_sidecars(dst, dst.stem)
+                    if anonymize:
+                        for json_path in dst.parent.glob(f"{dst.stem}*.json"):
+                            scrub_sidecar_json(json_path)
                 
                 # EDF/BrainVision/EEGLAB — already BIDS-ready
                 elif file_ext in (".edf", ".vhdr", ".set", ".bdf") and modality == "eeg":
@@ -1006,6 +1024,9 @@ def execute_bids_plan(
                         dst, dst.stem, _eeg_mapping,
                         input_root, _eeg_aux_mapping
                     )
+                    if anonymize:
+                        for json_path in dst.parent.glob(f"{dst.stem}*.json"):
+                            scrub_sidecar_json(json_path)
 
                 # NIfTI — already BIDS-ready
                 # FIX: removed the undefined _write_nifti_sidecar_if_needed() call
@@ -1014,6 +1035,8 @@ def execute_bids_plan(
                     copy_file(fp, dst)
                     successes += 1; done = True
                     processed_sources.add(fp_str)
+                    if deface and subdirectory == "anat" and dst.exists():
+                        deface_nifti(dst)
 
                 else:
                     warn(f"      ⚠ Unsupported format for {modality}: {file_ext}")
@@ -1050,6 +1073,12 @@ def execute_bids_plan(
             except Exception as e:
                 warn(f"  Could not copy to derivatives: {fp_str}: {e}")
     info(f"  ✓ Copied {copied_deriv} files to derivatives/")
+    # Scrub participants.tsv if anonymize=True
+    if anonymize:
+        parts_path = bids_root / "participants.tsv"
+        if parts_path.exists():
+            scrub_participants_tsv(parts_path)
+            info("  ✓ participants.tsv scrubbed (anonymize=True)")
 
     # ── Step 4: write logs and manifest ───────────────────────────────
     info("\n[4/5] Finalizing...")

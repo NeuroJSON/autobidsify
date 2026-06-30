@@ -10,6 +10,7 @@ from autobidsify.constants import (
     LICENSE_WHITELIST, SEVERITY_WARN, SEVERITY_INFO
 )
 from autobidsify.llm import llm_trio_dataset_description, llm_trio_readme, llm_trio_participants
+from autobidsify.anonymize import scrub_evidence_bundle, scrub_participants_tsv
 
 DEBUG_MODE = True
 
@@ -281,7 +282,8 @@ def _fix_field_types(dd: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
 # dataset_description.json
 # ============================================================================
 
-def generate_dataset_description(model: str, bundle: Dict[str, Any], out_dir: Path) -> Dict[str, Any]:
+def generate_dataset_description(model: str, bundle: Dict[str, Any], out_dir: Path,
+                                  anonymize: bool = False) -> Dict[str, Any]:
     """
     Generate dataset_description.json.
 
@@ -343,7 +345,7 @@ def generate_dataset_description(model: str, bundle: Dict[str, Any], out_dir: Pa
     raw_license_from_llm: Optional[str] = None
 
     try:
-        response_text = llm_trio_dataset_description(model, payload)
+        response_text = llm_trio_dataset_description(model, payload, anonymize=anonymize)
         if DEBUG_MODE:
             info(f"LLM response length: {len(response_text)} chars")
         result = _parse_llm_json_response(response_text, "dataset_description")
@@ -477,7 +479,8 @@ def generate_dataset_description(model: str, bundle: Dict[str, Any], out_dir: Pa
 # README.md
 # ============================================================================
 
-def generate_readme(model: str, bundle: Dict[str, Any], out_dir: Path) -> Dict[str, Any]:
+def generate_readme(model: str, bundle: Dict[str, Any], out_dir: Path,
+                    anonymize: bool = False) -> Dict[str, Any]:
     info("=== Generating README.md ===")
 
     readme_variants = ['readme', 'readme.md', 'readme.txt', 'readme.rst']
@@ -493,7 +496,7 @@ def generate_readme(model: str, bundle: Dict[str, Any], out_dir: Path) -> Dict[s
     }, ensure_ascii=False)
 
     try:
-        response_text = llm_trio_readme(model, payload)
+        response_text = llm_trio_readme(model, payload, anonymize=anonymize)
         if _is_markdown_content(response_text):
             info("✓ LLM returned direct Markdown content")
             result = {"readme_content": response_text.strip()}
@@ -516,7 +519,8 @@ def generate_readme(model: str, bundle: Dict[str, Any], out_dir: Path) -> Dict[s
 # ============================================================================
 
 def generate_participants(model: str, bundle: Dict[str, Any], out_dir: Path,
-                          force_simple: bool = False) -> Dict[str, Any]:
+                          force_simple: bool = False,
+                          anonymize: bool = False) -> Dict[str, Any]:
     info("=== Generating participants.tsv ===")
 
     parts_path = out_dir / TRIO_PARTICIPANTS
@@ -537,6 +541,11 @@ def generate_participants(model: str, bundle: Dict[str, Any], out_dir: Path,
     write_text(parts_path, "".join(lines))
     info(f"✓ Created: {parts_path}")
     info(f"  Note: Plan stage may update this file with additional columns")
+
+    if anonymize:
+        scrub_participants_tsv(parts_path)
+        info("  ✓ participants.tsv scrubbed (anonymize=True)")
+
     return {"warnings": [], "questions": []}
 
 
@@ -544,7 +553,8 @@ def generate_participants(model: str, bundle: Dict[str, Any], out_dir: Path,
 # Generate all trio files
 # ============================================================================
 
-def trio_generate_all(model: str, bundle: Dict[str, Any], out_dir: Path) -> Dict[str, Any]:
+def trio_generate_all(model: str, bundle: Dict[str, Any], out_dir: Path,
+                      anonymize: bool = False) -> Dict[str, Any]:
     info("=== Generating BIDS Trio (all files) ===")
 
     status = check_trio_status(out_dir)
@@ -561,7 +571,7 @@ def trio_generate_all(model: str, bundle: Dict[str, Any], out_dir: Path) -> Dict
         (generate_readme,              "README.md"),
         (generate_participants,        "participants.tsv"),
     ]:
-        r = fn(model, bundle, out_dir)
+        r = fn(model, bundle, out_dir, anonymize=anonymize)
         all_warnings.extend(r.get("warnings", []))
         all_questions.extend(r.get("questions", []))
 

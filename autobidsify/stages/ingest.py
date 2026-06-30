@@ -16,7 +16,8 @@ from pathlib import Path
 from datetime import datetime
 from autobidsify.utils import ensure_dir, info, fatal, warn, write_json
 
-def ingest_data(input_path: str, output_dir: Path) -> None:
+def ingest_data(input_path: str, output_dir: Path,
+                anonymize: bool = False, deface: bool = False) -> None:
     """
     High-level ingest function.
     
@@ -67,17 +68,30 @@ def ingest_data(input_path: str, output_dir: Path) -> None:
         "output_dir": str(output_dir),
         "staging_dir": str(staging_dir) if staging_dir else None,
         "actual_data_path": str(actual_data_path),
+        "anonymize": anonymize,
+        "deface": deface,
         "status": "complete"
     }
     
     # Save ingest info
     ingest_info_path = output_dir / "_staging" / "ingest_info.json"
     write_json(ingest_info_path, ingest_info)
-    
+
+    # Write session file so subsequent steps can find output_dir automatically
+    session_path = Path.cwd() / ".autobidsify_session"
+    try:
+        session_path.write_text(str(output_dir), encoding="utf-8")
+    except Exception as e:
+        warn(f"Could not write session file {session_path}: {e}")
+
     info(f"✓ Data ingestion complete")
     info(f"  Input type: {input_type}")
     info(f"  Data location: {actual_data_path}")
     info(f"  Ingest info saved: {ingest_info_path}")
+    if anonymize:
+        info(f"  Anonymization: enabled (metadata de-identification active)")
+    if deface:
+        info(f"  Defacing: enabled (MRI anat NIfTI files will be defaced at execute stage)")
 
 def _extract_archive(archive_path: Path, output_dir: Path) -> Path:
     """

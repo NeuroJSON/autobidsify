@@ -790,6 +790,53 @@ mappings:
 OUTPUT: Raw YAML only (no markdown, no explanation)
 """
 
+# ── Anonymize instruction snippets (appended to prompts when anonymize=True) ─
+
+_ANON_INSTRUCTION_TRIO = """
+═══════════════════════════════════════════════════════════════════════
+DE-IDENTIFICATION MODE (anonymize=True)
+═══════════════════════════════════════════════════════════════════════
+
+The input data has been pre-scrubbed of PHI. Follow these rules strictly:
+
+1. AUTHORS: Do NOT include real personal names in the Authors field.
+   Use institutional abbreviations or "et al." forms only if explicitly
+   present in the input text. If unsure, omit the Authors field entirely.
+
+2. INSTITUTION: Do NOT output real institution names.
+   If an institution is referenced, use the site label already in the
+   input (e.g. "site-01"). Never invent or restore institution names.
+
+3. DATES: Do NOT include specific dates (month/day). Year only is acceptable.
+
+4. ACKNOWLEDGEMENTS / FUNDING: Omit if they contain personal names or
+   specific institution names not already anonymized in the input.
+
+5. GENERAL: If a field value looks like PHI (name, address, phone, email),
+   omit that field entirely rather than including it.
+"""
+
+_ANON_INSTRUCTION_PLAN = """
+═══════════════════════════════════════════════════════════════════════
+DE-IDENTIFICATION MODE (anonymize=True)
+═══════════════════════════════════════════════════════════════════════
+
+The evidence bundle and file paths have been pre-scrubbed of PHI.
+Follow these rules:
+
+1. SUBJECT IDs: Use only the anonymized identifiers already in the input.
+   Do NOT attempt to restore or infer original patient names or IDs.
+
+2. PARTICIPANT METADATA: Do NOT include real names, addresses, or contact
+   information in participant_metadata. Use group/sex/age fields only.
+
+3. INSTITUTION: If site labels (site-01, site-02) appear in the input,
+   use them as-is. Do NOT restore original institution names.
+
+4. DESCRIBE TEXT: The user description may have been partially scrubbed.
+   Work with what is provided; do not attempt to fill in redacted parts.
+"""
+
 # MAT → SNIRF semantic mapping
 
 PROMPT_MAT_SNIRF_MAPPING = """You are an fNIRS data format expert.
@@ -1192,16 +1239,28 @@ If content cannot be determined from the sample, use content_type: "unknown".
 # Public LLM call wrappers
 # ============================================================================
 
-def llm_trio_dataset_description(model: str, payload: str) -> str:
-    return _call_llm(model, PROMPT_TRIO_DATASET_DESC, payload,
+def llm_trio_dataset_description(model: str, payload: str,
+                                  anonymize: bool = False) -> str:
+    prompt = PROMPT_TRIO_DATASET_DESC
+    if anonymize:
+        prompt = prompt + _ANON_INSTRUCTION_TRIO
+    return _call_llm(model, prompt, payload,
                      "Trio_DatasetDesc", temperature=0.1)
 
-def llm_trio_readme(model: str, payload: str) -> str:
-    return _call_llm(model, PROMPT_TRIO_README, payload,
+def llm_trio_readme(model: str, payload: str,
+                    anonymize: bool = False) -> str:
+    prompt = PROMPT_TRIO_README
+    if anonymize:
+        prompt = prompt + _ANON_INSTRUCTION_TRIO
+    return _call_llm(model, prompt, payload,
                      "Trio_README", temperature=0.4)
 
-def llm_trio_participants(model: str, payload: str) -> str:
-    return _call_llm(model, PROMPT_TRIO_PARTICIPANTS, payload,
+def llm_trio_participants(model: str, payload: str,
+                           anonymize: bool = False) -> str:
+    prompt = PROMPT_TRIO_PARTICIPANTS
+    if anonymize:
+        prompt = prompt + _ANON_INSTRUCTION_TRIO
+    return _call_llm(model, prompt, payload,
                      "Trio_Participants", temperature=0.2)
 
 def llm_nirs_draft(model: str, payload: str) -> str:
@@ -1250,6 +1309,10 @@ def llm_analyze_eeg_aux(model: str, payload: str) -> str:
         temperature=0.05,
     )
 
-def llm_bids_plan(model: str, payload: str) -> str:
-    return _call_llm(model, PROMPT_BIDS_PLAN, payload,
+def llm_bids_plan(model: str, payload: str,
+                  anonymize: bool = False) -> str:
+    prompt = PROMPT_BIDS_PLAN
+    if anonymize:
+        prompt = prompt + _ANON_INSTRUCTION_PLAN
+    return _call_llm(model, prompt, payload,
                      "BIDSPlan", temperature=0.15)

@@ -12,6 +12,7 @@ from autobidsify.constants import SEVERITY_BLOCK
 from autobidsify.llm import llm_nirs_draft, llm_nirs_normalize, llm_bids_plan
 from autobidsify.llm import llm_map_mat_to_snirf, llm_map_eeg_events, llm_analyze_eeg_aux
 from autobidsify.converters.nirs_convert import inspect_mat_structure, _structure_fingerprint
+from autobidsify.anonymize import scrub_text, scrub_participants_tsv
 
 HEADERS_DRAFT      = "nirs_headers_draft.json"
 HEADERS_NORMALIZED = "nirs_headers_normalized.json"
@@ -610,7 +611,9 @@ def _build_eeg_aux_mapping(
 # ============================================================================
 
 def build_bids_plan(model: str, planning_inputs: Dict[str, Any],
-                    out_dir: Path, id_strategy: str = "auto") -> Dict[str, Any]:
+                    out_dir: Path, id_strategy: str = "auto",
+                    anonymize: bool = False,
+                    describe: str = "") -> Dict[str, Any]:
     """
     Build BIDS conversion plan (LLM-first, Python-validates).
 
@@ -660,6 +663,9 @@ def build_bids_plan(model: str, planning_inputs: Dict[str, Any],
     info(f"  Data files for LLM: {len(sample_files)} "
          f"(filtered from {len(all_files)} total)")
 
+    # Scrub --describe text if anonymize=True before passing to LLM
+    describe_text = scrub_text(describe) if anonymize else describe
+
     optimized_bundle = {
         "root":          evidence_bundle.get("root"),
         "counts_by_ext": {
@@ -670,6 +676,8 @@ def build_bids_plan(model: str, planning_inputs: Dict[str, Any],
         "total_files":   len(all_files),
         "data_files":    len(data_files),
         "sample_files":  sample_files,
+        "id_strategy":   id_strategy,
+        "describe":      describe_text,
         "python_subject_analysis": {
             "success":       subject_info["success"],
             "method":        subject_info.get("method"),
@@ -694,7 +702,7 @@ def build_bids_plan(model: str, planning_inputs: Dict[str, Any],
     # ── Step 3: Call LLM ──────────────────────────────────────────────
     info("\nStep 3: Calling LLM for full plan generation...")
     evidence_json = json.dumps(optimized_bundle, indent=2)
-    plan_response = llm_bids_plan(model, evidence_json)
+    plan_response = llm_bids_plan(model, evidence_json, anonymize=anonymize)
 
     if not plan_response:
         fatal("LLM returned empty response for BIDS plan")
@@ -726,6 +734,11 @@ def build_bids_plan(model: str, planning_inputs: Dict[str, Any],
     # ── Step 5: Write participants.tsv ────────────────────────────────
     info("\nStep 5: Generating participants.tsv from LLM plan...")
     _write_participants_from_plan(plan_yaml, out_dir, user_n_subjects)
+    if anonymize:
+        parts_path = out_dir / "participants.tsv"
+        if parts_path.exists():
+            scrub_participants_tsv(parts_path)
+            info("  ✓ participants.tsv scrubbed (anonymize=True)")
 
     # ── Step 6: Merge extra metadata columns ──────────────────────────
     info("\nStep 6: Merging participant metadata...")
@@ -788,6 +801,7 @@ def build_bids_plan(model: str, planning_inputs: Dict[str, Any],
         "generated_at": datetime.now().isoformat(),
         "model":        model,
         "id_strategy":  id_strategy,
+        "anonymize":    anonymize,
     }
     plan_path = staging_dir / BIDS_PLAN
     write_yaml(plan_path, plan_yaml)

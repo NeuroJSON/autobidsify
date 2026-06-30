@@ -9,6 +9,7 @@ from autobidsify.utils import list_all_files, write_json, sha1_head, warn, info,
 from autobidsify.constants import MAX_TEXT_SIZE, MAX_PDF_SIZE, MAX_DOCX_SIZE, MAX_PDF_PAGES
 from autobidsify.universal_core import FileStructureAnalyzer
 from autobidsify.filename_tokenizer import analyze_filenames_for_subjects
+from autobidsify.anonymize import scrub_evidence_bundle, scrub_text
 
 TEXT_EXT    = {".txt", ".md", ".rst", ".html", ".htm", ".log"}
 TABLE_EXT   = {".csv", ".tsv", ".xlsx", ".xls"}
@@ -1403,7 +1404,8 @@ def _build_evidence_bundle_internal(
 # Public entry point
 # ============================================================================
 
-def build_evidence_bundle(output_dir: Path, user_hints: Dict[str, Any]) -> None:
+def build_evidence_bundle(output_dir: Path, user_hints: Dict[str, Any],
+                          anonymize: bool = False) -> None:
     output_dir = Path(output_dir)
 
     ingest_info_path = output_dir / "_staging" / "ingest_info.json"
@@ -1443,7 +1445,16 @@ def build_evidence_bundle(output_dir: Path, user_hints: Dict[str, Any]) -> None:
         "actual_path":   str(data_root)
     }
 
-    write_json(output_dir / "_staging" / "evidence_bundle.json", bundle)
+    # Apply de-identification before writing if anonymize=True.
+    # scrub_evidence_bundle returns a deep copy — original bundle unchanged.
+    if anonymize:
+        info("\n  Anonymizing evidence bundle (PHI scrubbing)...")
+        bundle_to_write = scrub_evidence_bundle(bundle)
+        info("  ✓ PHI scrubbed from evidence bundle")
+    else:
+        bundle_to_write = bundle
+
+    write_json(output_dir / "_staging" / "evidence_bundle.json", bundle_to_write)
     info(f"\n✓ Evidence bundle saved")
 
     info("\n=== Evidence Bundle Summary ===")

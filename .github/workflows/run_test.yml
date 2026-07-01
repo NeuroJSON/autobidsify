@@ -63,6 +63,8 @@ jobs:
   deploy:
     runs-on: ubuntu-22.04
     needs: test    # deploy only if test job succeeds
+    outputs:
+      uploaded: ${{ steps.upload_flag.outputs.uploaded }}
 
     steps:
       - name: Checkout repository
@@ -106,18 +108,30 @@ jobs:
           verbose: true
           skip_existing: true
 
-      # --- Notify the autobidsifyAPP repo to sync & rebuild the desktop app ---
-      # Runs only if the PyPI upload actually happened (same conditions as the
-      # upload step). Sends a repository_dispatch event; the app repo then
-      # compares the 8 vendored files' hashes and rebuilds only if they changed.
-      - name: Notify autobidsifyAPP
-        if: |
-          (github.actor == 'fangq' || github.actor == 'yiyiliu-rose') &&
-          steps.perform_pypi_upload_check.outputs.perform_pypi_upload == 1 &&
-          github.event_name != 'pull_request'
+      # Record whether an upload actually happened, so the desktop-app builds
+      # (same repo now) only rebuild when a new version was really published.
+      # Same conditions as the Upload step above.
+      - name: Set upload flag
+        id: upload_flag
+        if: always()
+        shell: bash
         run: |
-          curl -sf -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ secrets.APP_DISPATCH_TOKEN }}" \
-            https://api.github.com/repos/COTILab/autobidsifyAPP/dispatches \
-            -d '{"event_type":"autobidsify-deployed"}'
+          if [ "${{ github.actor }}" = "fangq" -o "${{ github.actor }}" = "yiyiliu-rose" ] \
+             && [ "${{ steps.perform_pypi_upload_check.outputs.perform_pypi_upload }}" = "1" ] \
+             && [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "uploaded=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "uploaded=false" >> "$GITHUB_OUTPUT"
+          fi
+  # ============================================================
+  # JOB 3: Rebuild the Full desktop app after a real PyPI upload
+  # Calls the reusable full_release workflow only when deploy actually
+  # published a new version (uploaded == true).
+  # ============================================================
+  rebuild-full:
+    needs: deploy
+    if: needs.deploy.outputs.uploaded == 'true'
+    uses: ./.github/workflows/full_release.yml
+    permissions:
+      contents: write
+    secrets: inherit

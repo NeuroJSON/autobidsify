@@ -1,0 +1,25 @@
+# AutoBIDSify ExecVal — desktop app dependencies
+#
+# GUI uses Tkinter, which ships with Python — NO GUI library to install,
+# and no pywebview / pythonnet / .NET / Qt / GTK dependencies. This keeps
+# the package small and makes PyInstaller packaging rock-solid.
+#
+# ExecVal now lives in the same repository as autobidsify and imports it
+# directly (no vendored copy). Install the library from the repo root in
+# editable mode so `import autobidsify` resolves to the source tree:
+#
+#     pip install -e .            # run from the repository root
+#
+# ExecVal only runs execute + validate, whose import chain does not touch the
+# LLM clients (openai / dashscope) or the document parsers, so those are not
+# needed here. The heavy / packaging-sensitive libraries are pinned explicitly
+# below so CI builds are reproducible even though they arrive transitively.
+numpy
+scipy
+h5py
+nibabel
+snirf
+bjdata            # JNIfTI (.jnii/.bnii) support
+bids-validator    # Tier-1 validation
+dcm2niix          # provides the dcm2niix binary on PATH (DICOM -> NIfTI)
+PyYAML            # read BIDSPlan.yaml; utils.write_yaml

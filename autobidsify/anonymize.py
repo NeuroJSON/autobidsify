@@ -1,11 +1,15 @@
 # autobidsify/anonymize.py
 # De-identification (anonymization) utilities for AutoBIDSify.
 #
-# Implements HIPAA Safe Harbor method (45 CFR §164.514(b)):
-#   - Removes or generalizes all 18 categories of PHI identifiers
-#   - Retains age for subjects ≤ 89; replaces with "90+" for subjects ≥ 90
-#   - Retains year from dates; removes month and day
-#   - Replaces InstitutionName with anonymous site label (site-01, site-02, ...)
+# Rule-based de-identification utilities inspired by HIPAA Safe Harbor
+# principles (45 CFR §164.514(b)).
+#
+# The implementation targets common structured metadata identifiers,
+# date fields, ages over 89, institution names, participant-table columns,
+# and selected text patterns. It does not guarantee complete HIPAA Safe
+# Harbor compliance, because free-text names, geographic references,
+# burned-in image annotations, biometric identifiers, URLs/IP addresses,
+# and other unique identifiers may require dataset-specific review.
 #
 # Scope: metadata only (evidence bundle, BIDS sidecar JSON, participants.tsv,
 #        free-text documents). MRI pixel-level defacing is handled separately

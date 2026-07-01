@@ -1,0 +1,142 @@
+name: Release Full (auto, 3 platforms)
+
+# Invoked by run_test.yml (workflow_call) after a successful PyPI upload in
+# the same repo. Unlike ExecVal, Full installs the COMPLETE autobidsify
+# package from PyPI, so ANY new release should rebuild it — no hash gating.
+# Publishes both a timestamped archive release and a fixed "latest-full"
+# release (stable download link).
+on:
+  workflow_call:        # invoked by run_test.yml after a real PyPI upload
+  workflow_dispatch:    # allow manual runs for testing
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: AutoBIDSify-Full-Windows
+            archive: zip
+            pyver: "3.14"
+          - os: macos-latest
+            artifact: AutoBIDSify-Full-macOS-arm64
+            archive: zip
+            pyver: "3.14"
+          - os: ubuntu-22.04
+            artifact: AutoBIDSify-Full-Linux
+            archive: tar
+            pyver: "3.12"
+    defaults:
+      run:
+        working-directory: app/full
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.pyver }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.pyver }}
+
+      - name: Install Linux Tk libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y python3-tk
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: pyinstaller build.spec
+
+      - name: Archive (zip, Windows/macOS)
+        if: matrix.archive == 'zip'
+        shell: bash
+        run: |
+          cd dist
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            powershell -Command "Compress-Archive -Path AutoBIDSify-Full -DestinationPath ${{ matrix.artifact }}.zip"
+          else
+            zip -r ${{ matrix.artifact }}.zip AutoBIDSify-Full
+          fi
+
+      - name: Archive (tar.gz, Linux)
+        if: matrix.archive == 'tar'
+        run: |
+          cd dist
+          tar -czf ${{ matrix.artifact }}.tar.gz AutoBIDSify-Full
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            app/full/dist/${{ matrix.artifact }}.zip
+            app/full/dist/${{ matrix.artifact }}.tar.gz
+          if-no-files-found: ignore
+          retention-days: 7
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release_files
+
+      - name: Determine archive tag and name
+        id: meta
+        shell: bash
+        run: |
+          STAMP=$(date +%Y%m%d-%H%M%S)
+          echo "tag=full-auto-$STAMP" >> "$GITHUB_OUTPUT"
+          echo "name=Full auto build $STAMP" >> "$GITHUB_OUTPUT"
+
+      - name: Publish archive release (history)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.name }}
+          body: |
+            AutoBIDSify Full desktop app — complete local pipeline (bring your own AI).
+            Auto-built after an autobidsify PyPI release.
+
+            Downloads:
+            - Windows: AutoBIDSify-Full-Windows.zip
+            - macOS (Apple Silicon): AutoBIDSify-Full-macOS-arm64.zip
+            - Linux: AutoBIDSify-Full-Linux.tar.gz
+
+            Linux note: requires a desktop environment (Tk). Built for GLIBC 2.35+.
+          files: release_files/**/*
+          draft: false
+          prerelease: false
+
+      - name: Publish/refresh the latest release (stable link)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest-full
+          name: AutoBIDSify Full (latest)
+          body: |
+            AutoBIDSify Full desktop app — complete local pipeline (bring your own AI).
+            This is the LATEST build; the download links below always point to
+            the newest version.
+
+            Downloads:
+            - Windows: AutoBIDSify-Full-Windows.zip
+            - macOS (Apple Silicon): AutoBIDSify-Full-macOS-arm64.zip
+            - Linux: AutoBIDSify-Full-Linux.tar.gz
+
+            Linux note: requires a desktop environment (Tk). Built for GLIBC 2.35+.
+          files: release_files/**/*
+          draft: false
+          prerelease: false

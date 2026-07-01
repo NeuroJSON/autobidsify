@@ -1,0 +1,159 @@
+name: Release ExecVal (3 platforms)
+
+# Step 2a: build all three platforms and publish a GitHub Release with the
+# packaged apps attached. Triggered by pushing a tag like "execval-v0.1.0",
+# or manually (workflow_dispatch) for testing.
+on:
+  push:
+    tags:
+      - "execval-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write          # needed to create a Release
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: AutoBIDSify-ExecVal-Windows
+            archive: zip
+            pyver: "3.14"
+          - os: macos-latest
+            artifact: AutoBIDSify-ExecVal-macOS-arm64
+            archive: zip
+            pyver: "3.14"
+          - os: ubuntu-22.04
+            artifact: AutoBIDSify-ExecVal-Linux
+            archive: tar
+            pyver: "3.12"
+
+    defaults:
+      run:
+        working-directory: app/execval
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.pyver }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.pyver }}
+
+      - name: Install Linux Tk libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y python3-tk
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Install the autobidsify library from the repo root (same repo now).
+          pip install -e "$GITHUB_WORKSPACE"
+          pip install -r requirements.txt
+          pip install pytest pyinstaller
+
+      - name: Run unit tests
+        run: python -m pytest
+
+      - name: Build with PyInstaller
+        run: pyinstaller build.spec
+
+      - name: Archive (zip, Windows/macOS)
+        if: matrix.archive == 'zip'
+        shell: bash
+        run: |
+          cd dist
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            powershell -Command "Compress-Archive -Path AutoBIDSify -DestinationPath ${{ matrix.artifact }}.zip"
+          else
+            zip -r ${{ matrix.artifact }}.zip AutoBIDSify
+          fi
+
+      - name: Archive (tar.gz, Linux)
+        if: matrix.archive == 'tar'
+        run: |
+          cd dist
+          tar -czf ${{ matrix.artifact }}.tar.gz AutoBIDSify
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            app/execval/dist/${{ matrix.artifact }}.zip
+            app/execval/dist/${{ matrix.artifact }}.tar.gz
+          if-no-files-found: ignore
+          retention-days: 7
+
+  release:
+    name: Publish Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release_files
+
+      - name: List downloaded files
+        run: find release_files -type f
+
+      - name: Determine release tag and name
+        id: meta
+        shell: bash
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            echo "name=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=execval-manual-${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+            echo "name=ExecVal manual build ${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.name }}
+          body: |
+            AutoBIDSify ExecVal desktop app — local execute & validate.
+
+            Downloads:
+            - Windows: AutoBIDSify-ExecVal-Windows.zip
+            - macOS (Apple Silicon): AutoBIDSify-ExecVal-macOS-arm64.zip
+            - Linux: AutoBIDSify-ExecVal-Linux.tar.gz
+
+            Linux note: requires a desktop environment (Tk). Built for GLIBC 2.35+.
+          files: release_files/**/*
+          draft: false
+          prerelease: false
+
+      # Also update the fixed "latest" release so the stable download link
+      # always points to the newest ExecVal build (matches the auto workflow).
+      - name: Publish/refresh the latest release (stable link)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest-execval
+          name: AutoBIDSify ExecVal (latest)
+          body: |
+            AutoBIDSify ExecVal desktop app — local execute & validate.
+            This is the LATEST build; the download links below always point to
+            the newest version.
+
+            Downloads:
+            - Windows: AutoBIDSify-ExecVal-Windows.zip
+            - macOS (Apple Silicon): AutoBIDSify-ExecVal-macOS-arm64.zip
+            - Linux: AutoBIDSify-ExecVal-Linux.tar.gz
+
+            Linux note: requires a desktop environment (Tk). Built for GLIBC 2.35+.
+          files: release_files/**/*
+          draft: false
+          prerelease: false

@@ -1,0 +1,23 @@
+# AutoBIDSify Full — desktop app dependencies
+#
+# GUI uses Tkinter (bundled with Python — no pywebview/pythonnet/Qt/GTK).
+#
+# Unlike ExecVal, Full installs the COMPLETE autobidsify package from PyPI,
+# which pulls in the full pipeline (ingest/evidence/trio/plan/execute/validate)
+# and the LLM clients. The user brings their own AI; no keys are bundled.
+
+autobidsify              # full pipeline (pulls in its own dependencies)
+
+# autobidsify's own deps are installed transitively, but we pin the heavy /
+# packaging-sensitive ones explicitly so CI builds are reproducible:
+numpy
+scipy
+h5py
+nibabel
+snirf
+bjdata
+bids-validator
+dcm2niix
+PyYAML
+openai                   # OpenAI engine
+requests                 # Ollama REST / DashScope

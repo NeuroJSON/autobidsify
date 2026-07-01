@@ -1,0 +1,93 @@
+name: Build ExecVal (3 platforms)
+
+# Part 1: manual trigger only. Produces downloadable artifacts for testing.
+# Releases are added later (Part 2, cross-repo sync).
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false   # let other platforms finish even if one fails
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: AutoBIDSify-Windows
+            archive: zip
+            pyver: "3.14"
+          - os: macos-latest          # Apple Silicon (arm64)
+            artifact: AutoBIDSify-macOS-arm64
+            archive: zip
+            pyver: "3.14"
+          - os: ubuntu-22.04
+            artifact: AutoBIDSify-Linux
+            archive: tar
+            # 3.12 links against an older GLIBC than 3.14, so the Linux build
+            # runs on Ubuntu 22.04 (GLIBC 2.35) and older systems.
+            pyver: "3.12"
+
+    defaults:
+      run:
+        working-directory: app/execval
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.pyver }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.pyver }}
+
+      # Tkinter needs the system Tk libraries to be present so PyInstaller can
+      # bundle them. The GitHub Ubuntu runner does not always include them.
+      - name: Install Tk libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk tk
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Install the autobidsify library from the repo root (same repo now).
+          # ExecVal imports it directly; no vendored copy, no PyPI download.
+          pip install -e "$GITHUB_WORKSPACE"
+          pip install -r requirements.txt
+          pip install pytest pyinstaller
+
+      - name: Run unit tests
+        run: python -m pytest
+
+      - name: Build with PyInstaller
+        run: pyinstaller build.spec
+
+      # --- package the onedir output per platform ---
+      - name: Archive (zip, Windows/macOS)
+        if: matrix.archive == 'zip'
+        shell: bash
+        run: |
+          cd dist
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            powershell -Command "Compress-Archive -Path AutoBIDSify -DestinationPath ${{ matrix.artifact }}.zip"
+          else
+            zip -r ${{ matrix.artifact }}.zip AutoBIDSify
+          fi
+
+      - name: Archive (tar.gz, Linux)
+        if: matrix.archive == 'tar'
+        run: |
+          cd dist
+          tar -czf ${{ matrix.artifact }}.tar.gz AutoBIDSify
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            app/execval/dist/${{ matrix.artifact }}.zip
+            app/execval/dist/${{ matrix.artifact }}.tar.gz
+          if-no-files-found: ignore
+          retention-days: 14

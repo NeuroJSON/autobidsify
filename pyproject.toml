@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "autobidsify"
-version = "0.9.6"
+version = "0.9.8"
 description = "Automated BIDS standardization tool powered by LLM-first architecture"
 readme = "README.md"
 license = {text = "MIT"}

@@ -314,7 +314,7 @@ AutoBIDSify uses a hybrid architecture that combines deterministic Python operat
 
 ## Current Status
 
-**Version:** 0.9.6
+**Version:** 0.9.8
 
 AutoBIDSify is under active development. Current work focuses on improving robustness across MRI, fNIRS, EEG, and mixed-modality datasets with diverse real-world structures.
 
@@ -413,8 +413,7 @@ Together, the dataset example, LLM questions, logs, and description help us insp
 
 Please do not share identifiable or sensitive data. If you are unsure whether a dataset can be shared, please only provide de-identified metadata, a simplified folder tree, logs without sensitive paths, and a manually prepared expected BIDS tree.
 
-Please test AutoBIDSify and report issues at:
-https://github.com/cotilab/autobidsify/issues
+Please test AutoBIDSify and report issues at: https://github.com/NeuroJSON/autobidsify/issues
 
 ## License
 

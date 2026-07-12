@@ -25,6 +25,7 @@ from autobidsify.anonymize import (
     scrub_text_file,
     is_text_scrubbable,
 )
+from autobidsify.converters.mri_convert import generate_mri_bids_sidecar
 
 
 def _sanitize_bids_label(label: str) -> str:
@@ -494,6 +495,65 @@ def categorize_scan_type(suffix: str) -> str:
     return "unknown"
 
 
+def _analysis_from_naming_entry(filepath: str, e: Dict[str, str],
+                                modality: str) -> Dict[str, Any]:
+    """Build the analysis dict from naming_structure entities via bids_grammar.
+
+    naming_structure is authoritative: Python already resolved subject/ses/task/
+    acq/run for this file. Here we only choose the bare suffix + extension for the
+    modality, then hand the entity bag to assemble_bids_name(), which enforces
+    canonical order and drops entities illegal for the datatype (so a task value
+    can never land on an anat T1w file, and run always follows task).
+    """
+    from autobidsify.bids_grammar import assemble_bids_name, sanitize_label
+
+    if modality == "nirs":
+        datatype, suffix, ext = "nirs", "nirs", ".snirf"
+    elif modality == "eeg":
+        oe = "." + filepath.rsplit(".", 1)[-1] if "." in filepath else ""
+        ext = oe if oe in (".edf", ".vhdr", ".set", ".bdf") else ".edf"
+        datatype, suffix = "eeg", "eeg"
+    elif modality == "mrs":
+        # MRS: suffix comes from the naming entry (svs/mrsi/mrsref/unloc),
+        # default svs; data lives in mrs/ as NIfTI-MRS.
+        datatype, suffix, ext = "mrs", (e.get("_suffix") or "svs"), ".nii.gz"
+    else:
+        # MRI: reuse scan-type inference but keep ONLY the bare suffix token
+        # (T1w/bold/dwi). Any task/acq/run the heuristic packed into the suffix
+        # is discarded — entities come from the naming entry, which is authoritative.
+        si = infer_scan_type_from_filepath(filepath, [], modality="mri")
+        suffix   = si["suffix"].split("_")[-1]      # strip packed entities
+        datatype = si["subdirectory"]               # anat / func / dwi
+        ext      = ".nii.gz"
+
+    entities = {
+        "ses":  e.get("ses"),
+        "task": e.get("task"),
+        "acq":  e.get("acq"),
+        "run":  e.get("run"),
+        "nuc":  e.get("nuc"),
+        "voi":  e.get("voi"),
+    }
+
+    bids_filename, dropped, missing = assemble_bids_name(
+        subject=e["subject"], entities=entities,
+        datatype=datatype, suffix=suffix, ext=ext,
+    )
+    subdir = (f"ses-{sanitize_label(e['ses'])}/{datatype}"
+              if e.get("ses") else datatype)
+
+    return {
+        "subject_id":        e["subject"],
+        "scan_type_suffix":  suffix,
+        "bids_filename":     bids_filename,
+        "subdirectory":      subdir,
+        "scan_category":     datatype,
+        "original_filepath": filepath,
+        "modality":          modality,
+        "_missing_entities": missing,   # func/nirs/eeg with no task shows up here
+    }
+
+
 # ============================================================================
 # Universal filepath analyzer
 # ============================================================================
@@ -503,6 +563,7 @@ def analyze_filepath_universal(
     assignment_rules: List[Dict],
     filename_rules: List[Dict],
     modality: str = "mri",
+    naming_entry: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """
     Determine the BIDS subject ID and output filename for a source file.
@@ -514,6 +575,9 @@ def analyze_filepath_universal(
     4. Standard BIDS sub-XX pattern already in the path.
     5. Fallback: 'unknown'.
     """
+    if naming_entry and naming_entry.get("subject"):
+        return _analysis_from_naming_entry(filepath, naming_entry, modality)
+
     filename   = filepath.split("/")[-1]
     path_parts = filepath.split("/")
     subject_id: Optional[str] = None
@@ -625,6 +689,8 @@ def execute_bids_plan(
 
     logs:     List[Dict] = []
     successes = failures = 0
+    written_targets: Dict[str, str] = {}      # dst path -> source that wrote it
+    collisions: List[Dict[str, str]] = []     # never overwrite silently
 
     # ── Step 1: copy trio files ───────────────────────────────────────
     info("\n[1/5] Organizing trio files...")
@@ -642,6 +708,19 @@ def execute_bids_plan(
     ]
     path_str_to_path = {s: p for s, p in zip(all_files_str, all_files_paths)}
     info(f"Total files: {len(all_files_str)}")
+
+    naming_structure = plan.get("naming_structure", [])
+    id_strategy = (plan.get("metadata") or {}).get("id_strategy", "auto")
+    naming_per_file = {}
+    if naming_structure:
+        from autobidsify.filename_tokenizer import expand_naming_structure
+        _naming_exts = ('.snirf', '.nirs', '.mat', '.dcm', '.nii', '.nii.gz',
+                        '.jnii', '.bnii', '.edf', '.vhdr', '.set', '.bdf')
+        _data_only = [f for f in all_files_str if f.lower().endswith(_naming_exts)]
+        _nsub = (plan.get("subjects") or {}).get("count")
+        naming_per_file, _ = expand_naming_structure(
+            _data_only, naming_structure, id_strategy, nsubjects=_nsub)
+        info(f"  naming_structure covered {len(naming_per_file)} file(s)")
 
     assignment_rules: List[Dict] = plan.get("assignment_rules", [])
     mappings:         List[Dict] = plan.get("mappings", [])
@@ -709,8 +788,9 @@ def execute_bids_plan(
                     fp = path_str_to_path.get(fp_str)
                     if not fp:
                         continue
-                    analysis = analyze_filepath_universal(fp_str, assignment_rules,
-                                                             filename_rules, modality="nirs")
+                    analysis = analyze_filepath_universal(
+                        fp_str, assignment_rules, filename_rules,
+                        modality="nirs", naming_entry=naming_per_file.get(fp_str))
                     dst = (bids_root
                            / f"sub-{analysis['subject_id']}"
                            / analysis.get("subdirectory", "nirs")
@@ -818,7 +898,8 @@ def execute_bids_plan(
         # ── MRI / format-ready: analyze → group → convert / copy ──────
         file_analyses = [
             analyze_filepath_universal(f, assignment_rules, filename_rules,
-                                       modality=modality)
+                                       modality=modality,
+                                       naming_entry=naming_per_file.get(f))
             for f in matched_files
         ]
 
@@ -836,12 +917,13 @@ def execute_bids_plan(
                 fname_base = _normalize_filename(fp_str)
                 group_key  = f"{subj}_{scan_suffix}_{fname_base}"
             else:
-                # For non-DICOM files (fNIRS SNIRF, NIfTI), include the
-                # filename base in the group key so that multiple files
-                # with the same subject+suffix but different names
-                # (e.g. different tasks) are kept as separate scan groups.
-                fname_base_nir = _normalize_filename(fp_str)
-                group_key = f"{subj}_{scan_suffix}_{fname_base_nir}"
+                # Key on the FULL assembled BIDS name (all entities included) so
+                # files that differ only by run/ses/acq/task stay in SEPARATE
+                # groups. Same run+suffix but different source format (BRIK vs
+                # NIfTI) still share one key and get deduped by _select_preferred_file.
+                from autobidsify.bids_grammar import bids_stem
+                group_key = (f"{subj}/{analysis['subdirectory']}/"
+                             f"{bids_stem(analysis['bids_filename'])}")
 
             if group_key not in file_groups:
                 if is_dicom:
@@ -871,6 +953,16 @@ def execute_bids_plan(
                         bids_fname = f"sub-{subj}_acq-{acq_label}_{scan_suffix}.nii.gz"
 
                     subdir = analysis["subdirectory"]
+                    # Keep ses consistent between directory and filename. The
+                    # hand-built DICOM name above omits ses-, but subdir may
+                    # carry ses-N/ (from the naming entry). BIDS requires both
+                    # sides to match, so inject ses- into the filename whenever
+                    # the subdir has a session layer.
+                    _m = re.match(r"ses-([A-Za-z0-9]+)/", subdir)
+                    if _m and "_ses-" not in bids_fname:
+                        _ses = _m.group(1)
+                        bids_fname = bids_fname.replace(
+                            f"sub-{subj}_", f"sub-{subj}_ses-{_ses}_", 1)
                 else:
                     bids_fname = analysis["bids_filename"]
                     subdir     = analysis["subdirectory"]
@@ -928,6 +1020,17 @@ def execute_bids_plan(
                                 else fp.suffix.lower()
 
                 dst = bids_root / f"sub-{subj}" / subdirectory / bids_filename
+
+                dst = bids_root / f"sub-{subj}" / subdirectory / bids_filename
+                _key = str(dst)
+                if _key in written_targets:
+                    warn(f"      ✗ COLLISION: {bids_filename} already written from "
+                         f"'{written_targets[_key]}', skipping '{fp_str}' (data would be lost)")
+                    collisions.append({"target": _key,
+                                       "kept": written_targets[_key],
+                                       "dropped": fp_str})
+                    failures += 1
+                    continue
                 ensure_dir(dst.parent)
 
                 done = False
@@ -1041,6 +1144,9 @@ def execute_bids_plan(
                     copy_file(fp, dst)
                     successes += 1; done = True
                     processed_sources.add(fp_str)
+                    # BIDS-required sidecar for functional MRI: TaskName + RepetitionTime.
+                    from autobidsify.converters.mri_convert import generate_mri_bids_sidecar
+                    generate_mri_bids_sidecar(dst, bids_filename, subdirectory)
                     if deface and subdirectory == "anat" and dst.exists():
                         deface_nifti(dst)
 
@@ -1049,6 +1155,7 @@ def execute_bids_plan(
                     failures += 1
 
                 if done:
+                    written_targets[_key] = fp_str
                     logs.append({
                         "source":      fp_str,
                         "destination": f"sub-{subj}/{subdirectory}/{bids_filename}",
@@ -1120,6 +1227,13 @@ def execute_bids_plan(
     # ── Step 4: write logs and manifest ───────────────────────────────
     info("\n[4/5] Finalizing...")
     write_json(Path(output_dir) / "_staging" / "conversion_log.json", logs)
+    if naming_per_file:
+        write_json(Path(output_dir) / "_staging" / "naming_log.json", {
+            "generated_by": "autobidsify execute stage",
+            "files": naming_per_file,
+        })
+        info(f"  ✓ naming_log.json: {len(naming_per_file)} file(s)")
+    
     manifest_files = sorted(
         str(p.relative_to(bids_root)).replace("\\", "/")
         for p in bids_root.rglob("*") if p.is_file()
@@ -1165,9 +1279,10 @@ def execute_bids_plan(
         warn("⚠ WARNING: No subject directories created!")
 
     return {
-        "total_mappings":        len(mappings),
+        "total_mappings":         len(mappings),
         "successful_conversions": successes,
-        "failed_conversions":    failures,
-        "bids_root":             str(bids_root),
-        "subject_count":         len(subject_dirs),
+        "failed_conversions":     failures,
+        "collisions":             collisions,          # NEW
+        "bids_root":              str(bids_root),
+        "subject_count":          len(subject_dirs),
     }

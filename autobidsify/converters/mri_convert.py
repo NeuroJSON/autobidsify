@@ -322,3 +322,47 @@ def validate_nifti(nifti_path: Path) -> bool:
     except Exception as e:
         warn(f"NIfTI validation failed for {nifti_path}: {e}")
         return False
+    
+
+def generate_mri_bids_sidecar(nifti_path: Path, bids_filename: str,
+                              subdirectory: str) -> None:
+    """
+    Write the BIDS-required JSON sidecar for an MRI file when its datatype needs one.
+
+    func (bold): TaskName and RepetitionTime are REQUIRED by the validator.
+      - TaskName comes from the task- entity in the filename.
+      - RepetitionTime is read from the NIfTI header's 4th voxel dimension (TR
+        in seconds). If the header has no TR, we warn honestly rather than
+        fabricate a value.
+    anat / dwi: no validator-required field, so no sidecar is forced.
+    """
+    import re
+    from autobidsify.bids_grammar import bids_stem, required_sidecar_fields
+    stem     = bids_stem(bids_filename)
+    suffix   = stem.split("_")[-1]
+    datatype = subdirectory.split("/")[-1]        # strip any ses-XX/ prefix
+
+    required = required_sidecar_fields(datatype, {})
+    if not required:                              # anat / dwi
+        return
+
+    sidecar: Dict[str, Any] = {}
+    m = re.search(r"task-([A-Za-z0-9]+)", bids_filename)
+    if "TaskName" in required:
+        sidecar["TaskName"] = m.group(1) if m else "rest"
+
+    if "RepetitionTime" in required:
+        try:
+            img   = nib.load(str(nifti_path))
+            zooms = img.header.get_zooms()
+            if len(zooms) >= 4 and float(zooms[3]) > 0:
+                sidecar["RepetitionTime"] = round(float(zooms[3]), 6)
+        except Exception:
+            pass
+        if "RepetitionTime" not in sidecar:
+            warn(f"  ⚠ {nifti_path.name}: no RepetitionTime in NIfTI header; "
+                 f"validator will flag it. Add TR to the source data or --describe.")
+
+    json_path = nifti_path.parent / (stem + ".json")
+    write_json(json_path, sidecar)
+    info(f"  ✓ MRI sidecar: {json_path.name} ({', '.join(sidecar.keys())})")

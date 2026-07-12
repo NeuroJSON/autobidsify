@@ -790,6 +790,56 @@ mappings:
 OUTPUT: Raw YAML only (no markdown, no explanation)
 """
 
+PROMPT_NAMING_STRUCTURE = """You label the ROLE of each token POSITION in filenames. \
+You do NOT write regex or code. You only output a YAML naming-structure entry.
+
+You receive, for one group of same-structured files:
+- per-segment token distributions (segment -1 = filename, -2 = its parent dir, etc.)
+- a few sample relative paths, already split into tokens per segment
+- a dataset description
+- id_strategy (numeric = sequential ids; semantic = keep meaningful label)
+
+Output ONE YAML object with keys 'applies_to' and 'roles'. Roles are:
+subject (REQUIRED), session, run, task, acq. Each role has:
+  mode: from_path | constant | lookup | none
+  sources: [{segment: int, position: int}, ...]   # for from_path/lookup key
+  join: ''                                         # optional, joins multi-source
+  value: ...                                       # for constant
+  table: {raw: id}                                 # for lookup only
+For subject also add: id_strategy: numeric|semantic
+For run add: as_index: true   (run MUST be an integer index in BIDS)
+
+Rules:
+- A token that is identical in EVERY file (e.g. the literal word 'session') is NOT
+  a value; use the neighboring numeric position as the index and ignore the literal.
+- If a distinguishing token (e.g. paretic side R/L) is NOT the subject id, do not put
+  it in subject.sources; the subject id is the identifying number/label only.
+- If the subject spans multiple positions (e.g. site + number to avoid cross-site
+  collisions), list all of them in sources in order.
+- SUBJECT UNIQUENESS IS MANDATORY. Subject ids may REPEAT across sibling grouping
+  directories such as group (PD/control), condition, session, or site. Numbers like
+  01..20 under BOTH PD/ and control/ are 40 DIFFERENT people, not 20. When ids can
+  repeat across a grouping level, the subject role MUST include that grouping
+  directory as an ADDITIONAL source together with the number, so every subject stays
+  globally unique (e.g. sources: group-dir + number-dir → PD01, control01).
+- USE nsubjects AS A CHECK. If user_hints.n_subjects is given, the subject sources you
+  choose MUST yield exactly that many DISTINCT subjects across all files. If a single
+  source yields fewer (because ids repeat across groups), you chose too shallow — add
+  the parent grouping directory as another source until the distinct count matches
+  n_subjects. Never pick a subject source that collapses distinct people together.
+- If the id is not derivable from the path at all, use mode: lookup with a table you
+  build from the description; otherwise use from_path.
+Output ONLY the YAML, no prose, no code fences.
+- To select a WHOLE path segment (the common case for subject), give ONLY the
+  segment and OMIT position, e.g. subject.sources: [{segment: -1}] takes the
+  entire filename stem 'S01' as the id. This is ROBUST: you do NOT need to
+  count how a segment splits into letter/digit tokens. PREFER whole-segment for
+  subject. Only add 'position' when the id is truly a fragment inside a segment
+  that also contains unrelated tokens.
+- If a subject spans multiple segments (e.g. group dir + number dir, or
+  site + number), list one whole-segment source per level in order:
+  subject.sources: [{segment: -3}, {segment: -2}]."""
+
 # ── Anonymize instruction snippets (appended to prompts when anonymize=True) ─
 
 _ANON_INSTRUCTION_TRIO = """
@@ -1316,3 +1366,7 @@ def llm_bids_plan(model: str, payload: str,
         prompt = prompt + _ANON_INSTRUCTION_PLAN
     return _call_llm(model, prompt, payload,
                      "BIDSPlan", temperature=0.15)
+
+def llm_label_naming_structure(model: str, payload: str) -> str:
+    return _call_llm(model, PROMPT_NAMING_STRUCTURE, payload,
+                     "NamingStructure", temperature=0.1)

@@ -17,7 +17,7 @@ AutoBIDSify helps convert raw neuroimaging datasets into BIDS-compatible structu
 - **LLM-assisted reasoning**: Uses LLMs for semantic decisions such as scan classification, task inference, event-file interpretation, and metadata normalization
 - **De-identification support**: Optional HIPAA-aligned metadata scrubbing and MRI defacing via `--anonymize` and `--deface`
 - **Provenance-aware output**: Tracks decisions, confidence, intermediate evidence, and conversion logs
-- **Validation support**: Supports BIDS validation after conversion
+- **Validation support**: Two-tier BIDS validation after conversion (a fast Python path-compliance check and full `bids-validator` structural validation)
 
 ## Supported Data Types and Formats
 
@@ -32,7 +32,7 @@ AutoBIDSify helps convert raw neuroimaging datasets into BIDS-compatible structu
 
 ### Output
 
-AutoBIDSify generates a BIDS-compatible dataset following the [BIDS specification](https://bids-specification.readthedocs.io/en/stable/).
+AutoBIDSify generates a BIDS-compatible dataset following the [BIDS specification](https://bids-specification.readthedocs.io/en/stable/) (targeting BIDS version 1.10.0). Filenames, entity ordering, and datatype-specific legality are enforced by a single internal BIDS grammar layer, so entities always appear in canonical order and only where the datatype allows them (for example, `task-` never leaks onto `anat` files).
 
 ## Installation
 
@@ -99,6 +99,19 @@ autobidsify full \
   --id-strategy auto \
   --describe "Your dataset description here"
 ```
+
+### Writing a good `--describe`
+
+`--describe` is optional but is often the single most important input for a correct conversion. The LLM uses it as context when identifying subjects, tasks, sessions, and runs. It matters most when that information is **not** visible in the filenames — for example when the task is stored inside a `.mat` or `.nirs` file rather than in its name, when many files share one constant task, or when subject IDs repeat across grouping folders.
+
+Write it as the person who provided the data, in plain language, describing what the data is and what the naming means — not in BIDS terminology. Useful things to state:
+
+- how many subjects there are, and what part of the path or filename identifies a subject;
+- what the task is, and whether every file shares one task or the task varies between files;
+- whether there are multiple sessions or runs, or whether each subject was recorded once;
+- the meaning of any prefixes or codes in the filenames.
+
+For example: *"Every recording is a resting-state scan; each `.nirs` file is one subject and the filename (e.g. `BZZ003`) is the subject id; there are no sessions and no runs."* A clear description like this lets AutoBIDSify translate the data into BIDS without the user needing to know BIDS conventions.
 
 ### Run step by step
 
@@ -193,10 +206,18 @@ Run the complete pipeline (stages 1–7) in one command. For step-by-step usage 
 | `--model MODEL` | No | `gpt-4o` | LLM model (see Supported Models) |
 | `--modality TYPE` | No | auto | `mri`, `nirs`, `eeg`, or `mixed` |
 | `--nsubjects N` | No | auto | Number of subjects |
-| `--id-strategy STRATEGY` | No | `auto` | `auto`, `numeric`, or `semantic` |
-| `--describe "TEXT"` | No | — | Dataset description; strongly recommended |
+| `--id-strategy STRATEGY` | No | `auto` | `auto`, `numeric`, or `semantic` (see below) |
+| `--describe "TEXT"` | No | — | Dataset description; strongly recommended (see [Writing a good --describe](#writing-a-good---describe)) |
 | `--anonymize true\|false` | No | `false` | Enable HIPAA-aligned metadata de-identification; requires local Ollama model |
 | `--deface` | No | off | Deface MRI anat images (T1w/T2w/FLAIR); requires pydeface + FSL |
+
+### Subject ID strategy (`--id-strategy`)
+
+Controls how the BIDS subject label is derived from the identifier found in the data:
+
+- **`semantic`** — keep the original identifier as the subject label, applying only the minimal cleanup BIDS requires (e.g. a multi-word site folder `NewYork_sub96705` is kept as the subject id). Best when the original IDs are meaningful and should be preserved.
+- **`numeric`** — assign sequential numeric labels (`sub-1`, `sub-2`, …). The original identifier is still recorded in `participants.tsv`. Best when the raw IDs are messy or inconsistent.
+- **`auto`** (default) — let AutoBIDSify choose between the two based on the detected naming pattern.
 
 ## Supported Models
 
@@ -258,7 +279,7 @@ When `--anonymize true` is set at `ingest` or `full`, AutoBIDSify applies HIPAA 
 | 4 | `trio` | Evidence bundle | BIDS trio files | Generate `dataset_description.json`, `README`, and `participants.tsv` |
 | 5 | `plan` | Evidence + BIDS trio | `BIDSPlan.yaml` | Create the conversion plan and modality-specific mappings |
 | 6 | `execute` | BIDS plan | `bids_compatible/`, `conversion_log.json`, `BIDSManifest.yaml` | Execute conversion and generate BIDS files/sidecars |
-| 7 | `validate` | BIDS dataset | Validation report | Validate the generated BIDS dataset |
+| 7 | `validate` | BIDS dataset | Validation report | Validate the generated BIDS dataset (Tier 1: Python path-compliance check; Tier 2: full `bids-validator` structural validation) |
 
 ## Example Output Structure
 
@@ -304,9 +325,11 @@ AutoBIDSify uses a hybrid architecture that combines deterministic Python operat
 - **LLM-based components** handle semantic tasks such as dataset description generation, metadata interpretation, scan type classification, task label inference, license normalization, event-file mapping, and auxiliary-file interpretation.
 - **Hybrid reasoning** allows Python to inspect all files for completeness while the LLM receives representative evidence for higher-level decisions.
 
+The LLM proposes how each filename maps to BIDS entities (subject, session, task, run, and so on), and Python then applies that mapping deterministically across every file. Structural entities are also evidence-checked: a `session` or `run` entity is only kept when it actually distinguishes multiple files in the dataset, so spurious single-valued or constant sessions/runs proposed by a model are dropped rather than emitted.
+
 ## Requirements
 
-- Python 3.8+
+- Python 3.10+
 - OpenAI API key, local Ollama model, remote Ollama endpoint, or DashScope API key
 - `bids-validator` (npm) for full BIDS validation, optional
 - `dcm2niix` for DICOM conversion, optional
@@ -321,12 +344,12 @@ AutoBIDSify is under active development. Current work focuses on improving robus
 ## Desktop Application
 
 A graphical desktop application is available for users who prefer not to use the command line. All releases are available at:
-https://github.com/yiyiliu-rose/autobidsifyAPP/releases
+https://github.com/NeuroJSON/autobidsifyAPP/releases
 
 Two versions are provided:
 
 **AutoBIDSify ExecVal** — Execute and validate only. No AI or API key required.
-Runs the `execute` and `validate` stages locally using a pre-generated BIDS plan. https://github.com//autobidsifyAPP.git
+Runs the `execute` and `validate` stages locally using a pre-generated BIDS plan.
 
 | Platform              | Download                                                                                                                                                     |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |

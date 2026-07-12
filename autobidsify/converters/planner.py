@@ -12,6 +12,10 @@ from autobidsify.constants import SEVERITY_BLOCK
 from autobidsify.llm import llm_nirs_draft, llm_nirs_normalize, llm_bids_plan
 from autobidsify.llm import llm_map_mat_to_snirf, llm_map_eeg_events, llm_analyze_eeg_aux
 from autobidsify.converters.nirs_convert import inspect_mat_structure, _structure_fingerprint
+from autobidsify.converters.nirs_convert import inspect_mat_structure, _structure_fingerprint
+from autobidsify.filename_tokenizer import (
+    FilenameTokenizer, FilenamePatternAnalyzer, expand_naming_structure,
+)
 from autobidsify.anonymize import scrub_text, scrub_participants_tsv
 
 HEADERS_DRAFT      = "nirs_headers_draft.json"
@@ -239,6 +243,27 @@ def _write_participants_from_plan(
 
     parts_path.write_text("".join(lines))
     info(f"  ✓ participants.tsv: {len(ordered)} subjects, columns: {columns}")
+
+
+def _write_participants_from_subject_map(subject_map: Dict[str, str],
+                                         out_dir: Path) -> None:
+    """
+    Write participants.tsv from the naming_structure expansion.
+    subject_map: {subject_id: original_id}. Authoritative subject source.
+    """
+    parts_path = out_dir / "participants.tsv"
+    if parts_path.exists():
+        parts_path.unlink()
+
+    def _sort_key(sid: str):
+        try:    return (0, int(sid))
+        except: return (1, sid)
+
+    lines = ["participant_id\toriginal_id\n"]
+    for sid in sorted(subject_map.keys(), key=_sort_key):
+        lines.append(f"sub-{sid}\t{subject_map[sid]}\n")
+    parts_path.write_text("".join(lines))
+    info(f"  ✓ participants.tsv: {len(subject_map)} subjects (from naming_structure)")
 
 
 def _merge_participants_from_llm_metadata(
@@ -606,6 +631,171 @@ def _build_eeg_aux_mapping(
     return f"_staging/{EEG_AUX_MAPPING_FILE}"
 
 
+NAMING_STRUCTURE_KEY = "naming_structure"
+
+def _layout_signature(relpath: str) -> tuple:
+    parts = relpath.split('/')
+    fname_toks = FilenameTokenizer.tokenize(parts[-1])
+    shape = tuple('d' if t.isdigit() else 'a' for t in fname_toks)
+    return (len(parts), len(fname_toks), shape)
+
+def _build_naming_structure(model, data_files, describe, id_strategy):
+    """One LLM call per layout signature. Returns list of naming_structure entries."""
+    from autobidsify.llm import llm_label_naming_structure
+    from autobidsify.filename_tokenizer import FilenamePatternAnalyzer
+    import yaml as _yaml
+    groups = {}
+    for f in data_files:
+        groups.setdefault(_layout_signature(f), []).append(f)
+    entries = []
+    for sig, files in groups.items():
+        # build per-segment position distributions for this group
+        max_depth = min(sig[0], 4)
+        seg_stats = {}
+        for seg in range(-1, -max_depth - 1, -1):
+            names = [ff.split('/')[seg] for ff in files if abs(seg) <= len(ff.split('/'))]
+            seg_stats[seg] = FilenamePatternAnalyzer(names).analyze_token_statistics().get("token_positions", {})
+        payload = json.dumps({
+            "segment_distributions": {str(k): v for k, v in seg_stats.items()},
+            "samples": [{"path": ff, "tokens_seg_-1": FilenameTokenizer.tokenize(ff.split('/')[-1])}
+                        for ff in files[:8]],
+            "describe": describe,
+            "id_strategy": id_strategy,
+        }, indent=2)
+        try:
+            resp = llm_label_naming_structure(model, payload)
+            txt = resp.strip()
+            if txt.startswith("```"): txt = "\n".join(txt.split("\n")[1:])
+            if txt.endswith("```"): txt = txt[:-3]
+            parsed = _yaml.safe_load(txt.strip())
+            # LLM may return a single dict or a list; normalise to a list
+            candidates = parsed if isinstance(parsed, list) else [parsed]
+            # Python OWNS matching entirely: applies_to is always derived from the
+            # actual extensions present in THIS group's files. The LLM's own
+            # applies_to is ignored, so it can never inject globs (e.g. *.dcm,
+            # *.snirf) for file types this dataset does not contain.
+            exts = sorted({('.' + ff.rsplit('.', 1)[-1]).lower()
+                           for ff in files if '.' in ff})
+            if len(exts) == 1:
+                group_match = '**/*' + exts[0]
+            elif len(exts) > 1:
+                group_match = '**/*'      # mixed group: match any, roles still apply
+            else:
+                group_match = '**/*'
+            for cand in candidates:
+                if not isinstance(cand, dict):
+                    continue
+                roles = cand.get("roles")
+                if not isinstance(roles, dict) or not roles:
+                    continue
+                # take only the LLM's role labels; discard its applies_to
+                ap = {"match": group_match}
+                entries.append({"applies_to": ap, "roles": roles,
+                                "_fname_shape": [sig[1], sig[2]]})
+        except Exception as e:
+            warn(f"  naming_structure: group {sig} failed: {e}")
+    return entries
+
+
+def _reconcile_naming_structure(entries):
+    """
+    LLM may label structurally-identical groups inconsistently (e.g. it assigns
+    task to one modality but leaves another as mode:none even though both
+    filenames share the same token layout). Deterministically borrow a missing
+    role from a sibling entry that has the same filename token shape. No LLM.
+    Returns (entries, notes).
+    """
+    from collections import defaultdict
+
+    def _defined(spec):
+        return (isinstance(spec, dict)
+                and spec.get("mode") in ("from_path", "lookup", "constant"))
+
+    buckets = defaultdict(list)
+    for i, e in enumerate(entries):
+        buckets[tuple(map(str, e.get("_fname_shape") or []))].append(i)
+
+    notes = []
+    ROLE_NAMES = ("subject", "session", "run", "task", "acq")
+    for _key, idxs in buckets.items():
+        if len(idxs) < 2:
+            continue
+        for role in ROLE_NAMES:
+            donor = None
+            for i in idxs:
+                if _defined((entries[i].get("roles") or {}).get(role)):
+                    donor = entries[i]["roles"][role]
+                    break
+            if donor is None:
+                continue
+            for i in idxs:
+                roles = entries[i].setdefault("roles", {})
+                if not _defined(roles.get(role)):
+                    roles[role] = donor
+                    notes.append({"entry_index": i, "role": role,
+                                  "action": "borrowed_from_same_shape_sibling"})
+
+    for e in entries:
+        e.pop("_fname_shape", None)
+    return entries, notes
+
+
+def _apply_evidence_gate(naming_structure, data_files):
+    """Evidence gate for session/run. An entity that never distinguishes any
+    file is spurious (weak models invent constant or single-valued session/run
+    even when the data has neither). For each entry's 'session' and 'run' role:
+      - mode 'constant'                       -> demote to none (zero contrast)
+      - mode 'from_path' resolving to <2 distinct values across ALL files
+                                              -> demote to none (no contrast)
+      - mode 'from_path' with >=2 distinct    -> keep (real, e.g. ses1..ses6)
+    Uses the same _pick the executor uses, so gate and execution never diverge.
+    Returns a list of demotion records for provenance.
+    """
+    from autobidsify.filename_tokenizer import _pick
+
+    demotions = []
+    for entry in naming_structure or []:
+        roles = entry.get("roles", {})
+        if not isinstance(roles, dict):
+            continue
+        applies = (entry.get("applies_to") or {})
+        for role_name in ("session", "run"):
+            spec = roles.get(role_name)
+            if not isinstance(spec, dict):
+                continue
+            mode = spec.get("mode", "none")
+            if mode == "none":
+                continue
+
+            if mode == "constant":
+                roles[role_name] = {"mode": "none"}
+                demotions.append({
+                    "role": role_name, "reason": "constant (zero contrast)",
+                    "applies_to": applies,
+                    "old": spec.get("value"),
+                })
+                continue
+
+            if mode == "from_path":
+                sources = spec.get("sources", [])
+                join = spec.get("join", "")
+                seen = set()
+                for f in data_files:
+                    v = _pick(f, sources, join)
+                    if v not in (None, ""):
+                        seen.add(v)
+                if len(seen) < 2:
+                    roles[role_name] = {"mode": "none"}
+                    demotions.append({
+                        "role": role_name,
+                        "reason": f"from_path resolved to {len(seen)} distinct "
+                                  f"value(s) across {len(data_files)} files",
+                        "applies_to": applies,
+                        "distinct_values": sorted(seen),
+                    })
+    return demotions
+
+
 # ============================================================================
 # Main entry point
 # ============================================================================
@@ -730,10 +920,101 @@ def build_bids_plan(model: str, planning_inputs: Dict[str, Any],
         warn(f"  ⚠ LLM subject count ({llm_count}) ≠ user-provided count "
              f"({user_n_subjects}). Trusting LLM assignment_rules; updating count only.")
         plan_yaml["subjects"]["count"] = user_n_subjects
+    
+    # ── Step 4.5: naming_structure (authoritative for subject + entities) ──
+    info("\nStep 4.5: Building naming_structure...")
+    naming_structure = _build_naming_structure(model, data_files, describe, id_strategy)
+    # Self-check: LLM may label structurally-identical groups inconsistently.
+    # Deterministically borrow a missing role from a same-shape sibling group.
+    naming_structure, recon_notes = _reconcile_naming_structure(naming_structure)
+    if recon_notes:
+        plan_yaml["naming_structure_reconciliation"] = recon_notes
+        info(f"  reconciled {len(recon_notes)} role(s) across same-shape groups")
+
+    # Evidence gate: strip session/run roles that never distinguish any file.
+    _gate_demotions = _apply_evidence_gate(naming_structure, data_files)
+    if _gate_demotions:
+        plan_yaml["evidence_gate_demotions"] = _gate_demotions
+        for _d in _gate_demotions:
+            info(f"  ✓ demoted {_d['role']} to none — {_d['reason']}")
+
+    plan_yaml[NAMING_STRUCTURE_KEY] = naming_structure
+
+    # naming_structure is now the SINGLE authority for subject + entity
+    # resolution. Drop the legacy assignment_rules / filename_rules the LLM
+    # full-plan step may have emitted, so the executor cannot run two competing
+    # naming mechanisms and produce inconsistent, colliding output.
+    if naming_structure:
+        if plan_yaml.pop("assignment_rules", None) is not None:
+            info("  ✓ dropped legacy assignment_rules (naming_structure is authoritative)")
+        for _m in plan_yaml.get("mappings", []):
+            _m.pop("filename_rules", None)
+
+    from autobidsify.filename_tokenizer import expand_naming_structure
+    naming_per_file, naming_subject_map = expand_naming_structure(
+        data_files, naming_structure, id_strategy, nsubjects=user_n_subjects)
+    info(f"  naming_structure covered {len(naming_per_file)} file(s), "
+         f"{len(naming_subject_map)} subject(s)")
+
+    # ── Self-check (user --nsubjects is the authoritative oracle) ──────
+    plan_questions: List[Dict[str, Any]] = []
+
+    # Check 1: subject count. User-provided --nsubjects is assumed correct and
+    # has highest priority; a mismatch means naming_structure mis-resolved
+    # subjects. Block rather than silently emit a wrong dataset.
+    if user_n_subjects and len(naming_subject_map) != user_n_subjects:
+        got = len(naming_subject_map)
+        warn(f"  ⚠ naming_structure produced {got} subjects, "
+             f"but --nsubjects={user_n_subjects}")
+        plan_questions.append({
+            "severity": "block",
+            "message": (
+                f"naming_structure resolved {got} subject(s) but you specified "
+                f"--nsubjects {user_n_subjects}. The subject field was likely taken "
+                f"from the wrong part of the filename or path. Please clarify in "
+                f"--describe which part of the name identifies the subject "
+                f"(and, if applicable, which parts distinguish sites or sessions), "
+                f"then re-run."
+            ),
+        })
+
+    # Check 2: BIDS required-entity — nirs/eeg REQUIRE a task entity.
+    # A missing task means files differing only by task would collide.
+    _missing_task = [
+        rel for rel, e in naming_per_file.items()
+        if (rel.lower().endswith(('.snirf', '.nirs', '.mat',
+                                  '.edf', '.vhdr', '.set', '.bdf'))
+            and not e.get("task"))
+    ]
+    if _missing_task:
+        warn(f"  ⚠ {len(_missing_task)} nirs/eeg file(s) have no 'task' entity")
+        plan_questions.append({
+            "severity": "block",
+            "message": (
+                f"{len(_missing_task)} nirs/eeg file(s) could not be assigned a "
+                f"required 'task' entity (e.g. {_missing_task[0]}). Files that share "
+                f"subject/session/run but differ only by task would overwrite each "
+                f"other. Please explain in --describe how the task is encoded in the "
+                f"filename or metadata, then re-run."
+            ),
+        })
 
     # ── Step 5: Write participants.tsv ────────────────────────────────
     info("\nStep 5: Generating participants.tsv from LLM plan...")
-    _write_participants_from_plan(plan_yaml, out_dir, user_n_subjects)
+    if naming_subject_map:
+        # authoritative subjects from naming_structure
+        labels = sorted(naming_subject_map.keys(),
+                        key=lambda s: (len(s), s))
+        plan_yaml["subjects"] = {"count": len(labels), "labels": labels,
+                                 "id_strategy": id_strategy, "source": "naming_structure"}
+        # Replace entirely so stale LLM subject keys can't leak into the TSV
+        plan_yaml["participant_metadata"] = {
+            sid: {"original_id": raw} for sid, raw in naming_subject_map.items()
+        }
+        _write_participants_from_subject_map(naming_subject_map, out_dir)
+    else:
+        _write_participants_from_plan(plan_yaml, out_dir, user_n_subjects)
+    
     if anonymize:
         parts_path = out_dir / "participants.tsv"
         if parts_path.exists():
@@ -809,6 +1090,9 @@ def build_bids_plan(model: str, planning_inputs: Dict[str, Any],
 
     final_count = plan_yaml.get("subjects", {}).get("count", llm_count)
     info(f"\n=== Complete: {final_count} subjects ===")
+    if plan_questions:
+        warn("  ⚠ Plan has blocking questions — execute stage will be skipped")
+        return {"status": "blocked", "warnings": [], "questions": plan_questions}
     return {"status": "ok", "warnings": [], "questions": []}
 
 

@@ -483,6 +483,237 @@ class SubjectGroupingDecision:
         }
 
 
+def _san_label(v: str) -> str:
+    # BIDS label: alphanumeric only
+    return re.sub(r'[^A-Za-z0-9]', '', str(v))
+
+def _san_index(v: str) -> str:
+    # BIDS run index: digits only, no leading zero loss handled as int
+    d = re.sub(r'[^0-9]', '', str(v))
+    return str(int(d)) if d else ''
+
+def _segment_tokens(relpath: str, segment: int) -> List[str]:
+    # split path, pick segment by negative index, strip ext on filename seg, tokenize
+    parts = relpath.split('/')
+    if abs(segment) > len(parts):
+        return []
+    seg = parts[segment]
+    return FilenameTokenizer.tokenize(seg)
+
+def _pick(relpath: str, sources: List[Dict], join: str = '') -> Optional[str]:
+    parts = relpath.split('/')
+    vals = []
+    for s in sources:
+        if not isinstance(s, dict):
+            continue
+        # segment defaults to -1 (filename) when the LLM omits it
+        seg = int(s.get('segment', -1))
+        if abs(seg) > len(parts):
+            return None
+        raw = parts[seg]
+        # strip extension only on the filename segment
+        if seg == -1:
+            low = raw.lower()
+            for e in ('.nii.gz', '.snirf', '.nirs', '.jnii', '.bnii',
+                      '.edf', '.vhdr', '.set', '.bdf', '.mat', '.dcm'):
+                if low.endswith(e):
+                    raw = raw[: -len(e)]
+                    break
+            else:
+                if '.' in raw:
+                    raw = raw.rsplit('.', 1)[0]
+        # WHOLE-SEGMENT mode: no 'position' key (or whole:true) → take the
+        # entire segment string, robust to letter/digit tokenization.
+        if s.get('whole') or 'position' not in s:
+            vals.append(raw)
+            continue
+        # POSITION mode: index into tokenized segment (back-compat)
+        toks = FilenameTokenizer.tokenize(raw)
+        pos = int(s['position'])
+        if pos < 0 or pos >= len(toks):
+            return None
+        vals.append(toks[pos])
+    return join.join(vals) if vals else None
+
+def _resolve_roles_partial(relpath: str, roles: Dict[str, Any]) -> Dict[str, str]:
+    """Resolve whatever roles CAN be resolved for one file, with NO subject gate.
+    Unlike resolve_file_entities, a failed subject does not discard the roles it
+    did resolve — this lets expand_naming_structure merge roles the LLM split
+    across multiple entries that share the same applies_to glob (one entry
+    carries acq, another carries task/run)."""
+    out: Dict[str, str] = {}
+    if not isinstance(roles, dict):
+        return out
+    for ent, spec in roles.items():
+        if not isinstance(spec, dict):
+            continue
+        mode = spec.get('mode', 'none')
+        if mode == 'none':
+            continue
+        if mode == 'constant':
+            val = spec.get('value')
+        elif mode == 'from_path':
+            val = _pick(relpath, spec.get('sources', []), spec.get('join', ''))
+        elif mode == 'lookup':
+            ks_list = spec.get('key_source')
+            if isinstance(ks_list, dict):
+                ks_list = [ks_list]
+            if not ks_list:
+                ks_list = spec.get('sources', [])
+            key = _pick(relpath, ks_list) if ks_list else None
+            val = (spec.get('table') or {}).get(key) if key is not None else None
+        else:
+            val = None
+        if val in (None, ''):
+            continue
+        out['ses' if ent == 'session' else ent] = val
+    return out
+
+def resolve_file_entities(relpath: str, roles: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    """Apply one role-set to one file. Returns raw entities or None if subject unresolved."""
+    if not isinstance(roles, dict):
+        return None
+    if not isinstance(roles, dict):
+        return None
+    out = {}
+    for ent, spec in roles.items():
+        if not isinstance(spec, dict):
+            continue
+        mode = spec.get('mode', 'none')
+        if mode == 'none':
+            continue
+        if mode == 'constant':
+            val = spec.get('value')
+        elif mode == 'from_path':
+            val = _pick(relpath, spec.get('sources', []), spec.get('join', ''))
+        elif mode == 'lookup':
+            # tolerate LLM using 'sources' instead of 'key_source'
+            ks_list = spec.get('key_source')
+            if isinstance(ks_list, dict):
+                ks_list = [ks_list]
+            if not ks_list:
+                ks_list = spec.get('sources', [])
+            key = _pick(relpath, ks_list) if ks_list else None
+            val = (spec.get('table') or {}).get(key) if key is not None else None
+        else:
+            val = None
+        if val is None:
+            if ent == 'subject':
+                return None      # subject must resolve, else fall back
+            continue
+        # normalise role name 'session' to the BIDS entity key 'ses'
+        out['ses' if ent == 'session' else ent] = val
+    return out if out.get('subject') is not None else None
+
+def expand_naming_structure(files: List[str], naming_structure: List[Dict],
+                            id_strategy: str = 'auto',
+                            nsubjects: Optional[int] = None):
+    """
+    Deterministically expand naming_structure over all data files.
+    Returns (per_file, subject_map):
+      per_file[relpath] = {subject, subject_raw, ses, run, task, acq}
+      subject_map[subject_id] = original_id
+    """
+    def _match(relpath, applies_to):
+        import fnmatch
+        if not isinstance(applies_to, dict):
+            return False
+        pat = applies_to.get('match')
+        if not pat:
+            return True
+        # A '**/' prefix means "any depth including zero". Python's fnmatch
+        # does NOT treat '**/*.mat' as matching a root-level 'S01.mat' (it
+        # requires at least one directory). LLMs routinely emit '**/' patterns
+        # even for flat datasets, so also try the pattern with a leading '**/'
+        # stripped, making depth-zero match too.
+        if fnmatch.fnmatch(relpath, pat):
+            return True
+        if pat.startswith('**/'):
+            return fnmatch.fnmatch(relpath, pat[3:])
+        return False
+
+    # ── Choose the authoritative SUBJECT source entry ─────────────────
+    # subject correctness has an objective anchor: how many DISTINCT subjects a
+    # rule yields across all files. When --nsubjects is known it is the oracle,
+    # so pick the entry whose distinct-subject count is CLOSEST to nsubjects
+    # (this rejects both collapse, e.g. 40→2, and inflation, e.g. run folded
+    # into subject giving 20→60). Without nsubjects, fall back to the entry
+    # that yields the MOST distinct subjects (best effort). Ties break to the
+    # earliest entry. Every OTHER role still merges first-non-empty below.
+    def _distinct_subjects(entry):
+        seen = set()
+        for relpath in files:
+            if not _match(relpath, entry.get('applies_to', {})):
+                continue
+            r = _resolve_roles_partial(relpath, entry.get('roles', {})).get('subject')
+            if r:
+                seen.add(_san_label(r))
+        return seen
+
+    best_entry, best_key = None, None
+    for entry in naming_structure:
+        if not isinstance(entry, dict):
+            continue
+        n = len(_distinct_subjects(entry))
+        if n == 0:
+            continue
+        # sort key: with nsubjects, minimise |n - nsubjects| then prefer larger n;
+        # without, just maximise n. Smaller key wins.
+        if nsubjects:
+            key = (abs(n - nsubjects), -n)
+        else:
+            key = (-n,)
+        if best_key is None or key < best_key:
+            best_entry, best_key = entry, key
+
+    raw_per_file = {}          # relpath -> raw entities (subject_raw kept)
+    for relpath in files:
+        merged: Dict[str, str] = {}
+        # subject comes ONLY from the authoritative entry
+        if best_entry is not None and _match(relpath, best_entry.get('applies_to', {})):
+            s = _resolve_roles_partial(relpath, best_entry.get('roles', {})).get('subject')
+            if s not in (None, ''):
+                merged['subject'] = s
+        # every OTHER role merges first-non-empty across all matching entries
+        for entry in naming_structure:
+            if not isinstance(entry, dict):
+                continue
+            if not _match(relpath, entry.get('applies_to', {})):
+                continue
+            partial = _resolve_roles_partial(relpath, entry.get('roles', {}))
+            for k, v in partial.items():
+                if k == 'subject':
+                    continue                     # subject already fixed above
+                if v not in (None, '') and not merged.get(k):
+                    merged[k] = v
+        if merged.get('subject'):
+            raw_per_file[relpath] = merged
+
+    # canonical subject key = alphanumeric only, so 'L_06' and 'L06' collapse
+    # to one subject no matter how the LLM joined the source tokens.
+    distinct = sorted({_san_label(e['subject']) for e in raw_per_file.values()},
+                      key=lambda s: (len(re.sub(r'[^0-9]', '', s)), s))
+    subj_strat = 'numeric' if id_strategy in ('auto', 'numeric') else 'semantic'
+    canon_to_id, subject_map = {}, {}
+    for i, c in enumerate(distinct, 1):
+        sid = str(i) if subj_strat == 'numeric' else c
+        canon_to_id[c] = sid
+        subject_map[sid] = c
+
+    per_file = {}
+    for relpath, e in raw_per_file.items():
+        c = _san_label(e['subject'])
+        per_file[relpath] = {
+            'subject':     canon_to_id[c],
+            'subject_raw': c,
+            'ses':  _san_label(e['ses'])  if e.get('ses')  else '',
+            'run':  _san_index(e['run'])  if e.get('run')  else '',
+            'task': _san_label(e['task']) if e.get('task') else '',
+            'acq':  _san_label(e['acq'])  if e.get('acq')  else '',
+        }
+    return per_file, subject_map
+
+
 # ============================================================================
 # Testing
 # ============================================================================

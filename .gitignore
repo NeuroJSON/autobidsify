@@ -68,3 +68,10 @@ backups/
 
 # Misc
 bump_version.py
+
+# Tests
+repeatability/
+repeatability_config.py
+repeatability_run.out
+run_repeatability.py
+repeatability_full.out

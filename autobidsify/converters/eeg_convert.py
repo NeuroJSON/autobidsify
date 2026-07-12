@@ -568,8 +568,12 @@ def _generate_eeg_channels_tsv(
             ch_type = "MISC"
 
         unit = channel_units[i] if i < len(channel_units) else "n/a"
+        if not str(unit).strip():
+            unit = "n/a"
         fs_val = str(sampling_rates[i]) if i < len(sampling_rates) else "n/a"
-        rows.append("\t".join([label, ch_type, unit, fs_val, "good"]))
+        fields = [label, ch_type, unit, fs_val, "good"]
+        fields = [f if str(f).strip() else "n/a" for f in fields]
+        rows.append("\t".join(fields))
 
     out_path.write_text("\n".join(rows) + "\n", encoding="utf-8")
     info(f"  ✓ {out_path.name} ({len(channel_labels)} channels)")
@@ -630,7 +634,9 @@ def _generate_eeg_events_tsv(
     header = ["onset", "duration", "trial_type"]
     lines = ["\t".join(header)]
     for ev in events:
-        lines.append("\t".join(str(ev[h]) for h in header))
+        cells = [str(ev.get(h, "")) for h in header]
+        cells = [c if c.strip() else "n/a" for c in cells]
+        lines.append("\t".join(cells))
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     info(f"  ✓ {out_path.name} ({len(events)} event(s))")
 

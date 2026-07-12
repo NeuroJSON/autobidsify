@@ -1791,8 +1791,9 @@ def _generate_coordsystem_json(
         return
 
     write_json(out_path, {
-        "NIRSCoordinateSystem":      "unknown",
-        "NIRSCoordinateSystemUnits": "mm",
+        "NIRSCoordinateSystem":            "Other",
+        "NIRSCoordinateSystemDescription": "Coordinate system not specified in the source data.",
+        "NIRSCoordinateUnits":             "mm",
     })
     info(f"  ✓ {out_path.name}")
 

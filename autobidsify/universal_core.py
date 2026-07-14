@@ -812,6 +812,11 @@ def build_bids_filename(subject_id: str, scan_type: str, processing: str,
     Returns:
         BIDS filename (e.g., "sub-82352_acq-anonymized_T1w.nii.gz")
     """
+    # BIDS subject labels must be alphanumeric. subject_id may arrive as a raw
+    # folder name with underscores/hyphens (e.g. CamCAN 'Atlanta_sub06870'),
+    # which triggers validator code 62. Strip to alphanumeric here so this
+    # legacy builder matches assemble_bids_name's behaviour.
+    subject_id = re.sub(r"[^A-Za-z0-9]", "", str(subject_id))
     parts = [f"sub-{subject_id}"]
     
     # Determine BIDS entities based on scan type

@@ -26,6 +26,7 @@ from autobidsify.anonymize import (
     is_text_scrubbable,
 )
 from autobidsify.converters.mri_convert import generate_mri_bids_sidecar
+from autobidsify.bids_grammar import sanitize_label
 
 
 def _sanitize_bids_label(label: str) -> str:
@@ -617,6 +618,11 @@ def analyze_filepath_universal(
     # Strip accidental 'sub-' prefix from the bare ID
     if subject_id.startswith("sub-"):
         subject_id = subject_id[4:]
+    # BIDS subject labels must be alphanumeric — strip _,-,space etc. so a
+    # multi-word/underscore folder like 'Atlanta_sub06870' becomes a legal
+    # 'Atlantasub06870'. Without this, code 62 (illegal char in sub label).
+    from autobidsify.bids_grammar import sanitize_label as _san
+    subject_id = _san(subject_id)
 
     scan_info = infer_scan_type_from_filepath(filepath, filename_rules, modality=modality)
     if modality == "nirs":
@@ -905,7 +911,7 @@ def execute_bids_plan(
 
         file_groups: Dict[str, Dict] = {}
         for analysis in file_analyses:
-            subj        = analysis["subject_id"]
+            subj        = sanitize_label(analysis["subject_id"])
             scan_suffix = analysis["scan_type_suffix"]
             fp_str      = analysis["original_filepath"]
             is_dicom    = fp_str.lower().endswith(".dcm")

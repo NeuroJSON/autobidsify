@@ -337,7 +337,7 @@ The LLM proposes how each filename maps to BIDS entities (subject, session, task
 
 ## Current Status
 
-**Version:** 0.9.8
+**Version:** 0.9.9
 
 AutoBIDSify is under active development. Current work focuses on improving robustness across MRI, fNIRS, EEG, and mixed-modality datasets with diverse real-world structures.
 

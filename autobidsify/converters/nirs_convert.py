@@ -1415,10 +1415,20 @@ def _read_snirf_metadata(snirf_path: Path) -> Dict[str, Any]:
                 for ck in ch_keys:
                     ch = data1[ck]
                     def _read_scalar(group, key):
+                        # SNIRF spec says these indices are integers, but
+                        # MATLAB/Homer-exported files often store them as
+                        # float64 (e.g. 1.0), sometimes as shape-(1,) arrays.
+                        # Normalize integral values to int so they can be
+                        # used as list indices and print as "S1" not "S1.0".
                         try:
-                            v = group[key][()]
-                            return int(v) if np.issubdtype(
-                                np.array(v).dtype, np.integer) else float(v)
+                            v = np.asarray(group[key][()]).ravel()
+                            if v.size == 0:
+                                return None
+                            v = v[0]
+                            if np.issubdtype(v.dtype, np.integer):
+                                return int(v)
+                            fv = float(v)
+                            return int(fv) if fv.is_integer() else fv
                         except Exception:
                             return None
 
@@ -1637,9 +1647,10 @@ def _generate_channels_tsv(
         src_str = str(src) if src is not None else "?"
         det_str = str(det) if det is not None else "?"
         base_name = f"S{src_str}-D{det_str}"
+        wl_ok = isinstance(wl_idx, int) and 1 <= wl_idx <= len(wl_values)
         if pair_counts.get((src, det), 0) > 1 and wl_idx is not None:
             # Append wavelength value to disambiguate
-            if wl_idx - 1 < len(wl_values):
+            if wl_ok:
                 wl_val = int(round(wl_values[wl_idx - 1]))
                 ch_name = f"{base_name}_{wl_val}"
             else:
@@ -1660,7 +1671,7 @@ def _generate_channels_tsv(
                 bids_type = "MISC"
 
         # Wavelength nominal value
-        if wl_idx is not None and wl_idx - 1 < len(wl_values):
+        if wl_ok:
             wl_nominal = int(round(wl_values[wl_idx - 1]))
         else:
             wl_nominal = "n/a"
